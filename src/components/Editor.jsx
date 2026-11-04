@@ -1,0 +1,409 @@
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { api } from '../api/index.js';
+import CanvasStage from './CanvasStage.jsx';
+import PropsPanel from './PropsPanel.jsx';
+import SkinPoser from './SkinPoser.jsx';
+import { BrandPanel, CharactersPanel, ElementsPanel, PhotosPanel, TemplatesPanel, TextPanel } from './Panels.jsx';
+import { statusBadge } from './Home.jsx';
+import { BRAND } from '../lib/brand.js';
+import { applyWatermark } from '../lib/watermark.js';
+import { withIds } from '../lib/templates.js';
+import { canManage, compressImage, loadImage, roleLabel, uid } from '../lib/util.js';
+
+const RAIL = [
+  ['templates', '▦', 'Шаблоны'], ['text', 'T', 'Текст'], ['photos', '🖼', 'Фото'],
+  ['elements', '◆', 'Элементы'], ['characters', '☺', 'Персонажи'], ['brand', 'CN', 'Бренд'],
+];
+
+export default function Editor({ session, left, go, open }) {
+  const [doc, setDocState] = useState(null);
+  const [title, setTitle] = useState(open.title || 'Без названия');
+  const [workId, setWorkId] = useState(open.workId || null);
+  const [status, setStatus] = useState('draft');
+  const [author, setAuthor] = useState(session.nickname);
+  const [selectedId, setSelectedId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [tab, setTab] = useState('text');
+  const [zoom, setZoom] = useState(1);
+  const [fit, setFit] = useState(0.3);
+  const [uploads, setUploads] = useState([]);
+  const [poserSkin, setPoserSkin] = useState(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportOpts, setExportOpts] = useState({ format: 'png', mult: 1, quality: 0.92 });
+  const [toast, setToast] = useState('');
+  const [saved, setSaved] = useState('');
+  const [settings, setSettings] = useState({ watermarkOpacity: 0.85, watermarkCorner: 'br' });
+  const [fontTick, setFontTick] = useState(0);
+  const history = useRef({ past: [], future: [] });
+  const stageApi = useRef(null);
+  const wsRef = useRef(null);
+  const placeholderTarget = useRef(null);
+
+  const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2600); };
+
+  // ---- загрузка работы / шаблона
+  useEffect(() => {
+    api.getSettings().then((s) => s && setSettings(s)).catch(() => {});
+    if (open.workId) {
+      api.getWork(open.workId).then((w) => {
+        if (!w) { flash('Работа не найдена'); go({ name: 'home' }); return; }
+        setDocState(w.doc); setTitle(w.title || 'Без названия'); setStatus(w.status || 'draft'); setAuthor(w.author);
+      });
+    } else setDocState(open.doc);
+  }, []);
+
+  useEffect(() => {
+    const onDone = () => setFontTick((t) => t + 1);
+    document.fonts?.addEventListener?.('loadingdone', onDone);
+    document.fonts?.ready.then(onDone);
+    return () => document.fonts?.removeEventListener?.('loadingdone', onDone);
+  }, []);
+
+  // Подгрузить все шрифты, которые есть в документе
+  useEffect(() => {
+    if (!doc) return;
+    const fams = new Set(doc.elements.filter((e) => e.type === 'text').map((e) => `${e.fontStyle?.includes('italic') ? 'italic ' : ''}${e.fontStyle?.includes('bold') ? '700' : '400'} 32px "${e.fontFamily}"`));
+    Promise.all([...fams].map((f) => document.fonts.load(f).catch(() => {}))).then(() => setFontTick((t) => t + 1));
+  }, [doc?.elements]);
+
+  // ---- масштаб под окно
+  useLayoutEffect(() => {
+    if (!doc) return;
+    const calc = () => {
+      const ws = wsRef.current; if (!ws) return;
+      setFit(Math.min((ws.clientWidth - 60) / doc.width, (ws.clientHeight - 60) / doc.height));
+    };
+    calc(); window.addEventListener('resize', calc);
+    return () => window.removeEventListener('resize', calc);
+  }, [doc?.width, doc?.height]);
+  const scale = Math.max(0.05, fit * zoom);
+
+  // ---- история
+  const commit = useCallback((next) => {
+    setDocState((prev) => {
+      const value = typeof next === 'function' ? next(prev) : next;
+      if (value !== prev) {
+        history.current.past.push(prev);
+        if (history.current.past.length > 100) history.current.past.shift();
+        history.current.future = [];
+      }
+      return value;
+    });
+  }, []);
+  const undo = () => { const h = history.current; if (!h.past.length) return; setDocState((cur) => { h.future.push(cur); return h.past.pop(); }); };
+  const redo = () => { const h = history.current; if (!h.future.length) return; setDocState((cur) => { h.past.push(cur); return h.future.pop(); }); };
+
+  const update = useCallback((id, patch) => commit((d) => ({ ...d, elements: d.elements.map((e) => (e.id === id ? { ...e, ...patch } : e)) })), [commit]);
+  const updateDoc = (patch) => commit((d) => ({ ...d, ...patch }));
+  const selected = doc?.elements.find((e) => e.id === selectedId) || null;
+
+  // ---- добавление
+  const add = (spec) => {
+    const items = Array.isArray(spec) ? spec : [spec];
+    const base = items[0];
+    const w = base.width || 400, h = base.height || base.fontSize || 100;
+    const x0 = Math.round(doc.width / 2 - w / 2), y0 = Math.round(doc.height / 2 - h / 2);
+    const created = items.map(({ dy = 0, dx = 0, ...it }) => ({ opacity: 1, rotation: 0, ...it, id: uid(), x: x0 + dx, y: y0 + dy }));
+    commit((d) => ({ ...d, elements: [...d.elements, ...created] }));
+    setSelectedId(created[created.length - 1].id);
+  };
+
+  const addImage = async (src, opts = {}) => {
+    let { width, height } = opts;
+    if (!width || !height) {
+      const img = await loadImage(src);
+      const k = Math.min(1, (doc.width * 0.6) / img.width, (doc.height * 0.6) / img.height);
+      width = img.width * k; height = img.height * k;
+    }
+    // Если выделена рамка для фото — кладём картинку в неё (с обрезкой по пропорциям рамки)
+    const ph = doc.elements.find((e) => e.id === (placeholderTarget.current || selectedId) && e.type === 'placeholder');
+    placeholderTarget.current = null;
+    if (ph && !opts.name) {
+      const cropped = await coverCrop(src, ph.width, ph.height);
+      commit((d) => ({ ...d, elements: d.elements.map((e) => (e.id === ph.id ? { id: e.id, type: 'image', src: cropped, x: e.x, y: e.y, width: e.width, height: e.height, rotation: e.rotation, opacity: e.opacity } : e)) }));
+      setSelectedId(ph.id);
+      return;
+    }
+    add({ type: 'image', src, width, height, name: opts.name });
+  };
+
+  const addImageFile = async (file, targetId) => {
+    if (!file?.type?.startsWith('image/')) return;
+    const keepPng = file.type === 'image/png' && file.size < 1.5e6;
+    const src = await compressImage(file, 2200, 0.88, keepPng ? 'image/png' : 'image/jpeg');
+    setUploads((u) => [src, ...u].slice(0, 20));
+    if (targetId) placeholderTarget.current = targetId;
+    await addImage(src);
+  };
+
+  // ---- действия с выделенным
+  const actions = {
+    remove: () => { if (!selected) return; commit((d) => ({ ...d, elements: d.elements.filter((e) => e.id !== selected.id) })); setSelectedId(null); },
+    duplicate: () => {
+      if (!selected) return;
+      const copy = { ...structuredClone(selected), id: uid(), x: selected.x + 30, y: selected.y + 30, locked: false };
+      commit((d) => ({ ...d, elements: [...d.elements, copy] })); setSelectedId(copy.id);
+    },
+    order: (where) => commit((d) => {
+      const els = [...d.elements]; const i = els.findIndex((e) => e.id === selectedId); if (i < 0) return d;
+      const [el] = els.splice(i, 1);
+      const j = where === 'top' ? els.length : where === 'bottom' ? 0 : where === 'up' ? Math.min(els.length, i + 1) : Math.max(0, i - 1);
+      els.splice(j, 0, el); return { ...d, elements: els };
+    }),
+    center: () => selected && update(selected.id, { x: Math.round((doc.width - (selected.width || 0)) / 2), y: selected.type === 'text' ? selected.y : Math.round((doc.height - (selected.height || 0)) / 2) }),
+    fitImage: () => selected && update(selected.id, { x: 0, y: 0, width: doc.width, height: doc.height }),
+    resetRatio: async () => { if (!selected) return; const img = await loadImage(selected.src); update(selected.id, { height: selected.width * (img.height / img.width) }); },
+    pickPhotoForPlaceholder: () => { placeholderTarget.current = selectedId; document.getElementById('photo-file').click(); },
+  };
+
+  const applyColor = (c) => {
+    if (!selected) { updateDoc({ background: c }); return; }
+    update(selected.id, selected.type === 'line' ? { stroke: c } : { fill: c });
+  };
+  const applyFont = (f) => selected?.type === 'text' ? update(selected.id, { fontFamily: f }) : flash('Выделите текст');
+  const applyTemplate = (t) => {
+    if (!t.official) api.useTemplate(t.id).catch(() => {});
+    commit(withIds(structuredClone(t.doc))); setSelectedId(null);
+    flash('Шаблон применён. Ctrl+Z — вернуть прежний дизайн');
+  };
+
+  // ---- клавиатура и вставка
+  useEffect(() => {
+    const onKey = (e) => {
+      const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+      if (mod && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); return; }
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'c') { e.preventDefault(); copyToClipboard(); return; }
+      if (typing || !selected) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); actions.remove(); }
+      else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); actions.duplicate(); }
+      else if (e.key === 'Escape') setSelectedId(null);
+      else if (e.key.startsWith('Arrow') && !selected.locked) {
+        e.preventDefault(); const s = e.shiftKey ? 10 : 1;
+        const dx = e.key === 'ArrowLeft' ? -s : e.key === 'ArrowRight' ? s : 0; const dy = e.key === 'ArrowUp' ? -s : e.key === 'ArrowDown' ? s : 0;
+        update(selected.id, { x: selected.x + dx, y: selected.y + dy });
+      } else if (e.key === 'Enter' && selected.type === 'text') { e.preventDefault(); setEditingId(selected.id); }
+    };
+    const onPaste = (e) => {
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+      const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
+      if (item) { e.preventDefault(); addImageFile(item.getAsFile()); return; }
+      const text = e.clipboardData?.getData('text/plain');
+      if (text) { e.preventDefault(); add({ type: 'text', text, fontFamily: 'PT Serif', fontSize: 28, width: Math.min(900, doc.width * 0.8), fill: '#111111', align: 'left', fontStyle: 'normal', lineHeight: 1.3 }); }
+    };
+    window.addEventListener('keydown', onKey); window.addEventListener('paste', onPaste);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('paste', onPaste); };
+  });
+
+  // ---- автосохранение
+  const savingRef = useRef(null);
+  const persist = async (extra = {}) => {
+    if (!doc) return;
+    const id = workId || uid();
+    if (!workId) setWorkId(id);
+    const thumb = stageApi.current?.toThumb(360);
+    try {
+      await api.saveWork({ id, title, status, doc, thumb, ...extra });
+      setSaved(`Сохранено ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`);
+      return id;
+    } catch (e) { setSaved('Не сохранено'); flash(e.message); throw e; }
+  };
+  useEffect(() => {
+    if (!doc) return;
+    clearTimeout(savingRef.current);
+    setSaved('Сохраняю…');
+    savingRef.current = setTimeout(() => persist().catch(() => {}), 1500);
+    return () => clearTimeout(savingRef.current);
+  }, [doc, title]);
+
+  const changeStatus = async (s) => {
+    try { await persist({ status: s }); setStatus(s); flash(s === 'review' ? 'Отправлено на проверку' : s === 'approved' ? 'Работа одобрена' : 'Возвращено на доработку'); }
+    catch { /* сообщение уже показано */ }
+  };
+
+  // ---- экспорт и копирование
+  const isDraft = session.role === 'intern' && status !== 'approved';
+  const renderFinal = async (format, mult) => {
+    setEditingId(null);
+    const canvas = stageApi.current.toCanvas(mult);
+    let exportId = '';
+    try {
+      const rec = await api.logExport({ workId, title, format, watermark: isDraft ? 'черновик' : 'логотип' });
+      exportId = rec?.id || '';
+    } catch { /* экспорт всё равно делаем */ }
+    const k = canvas.width / doc.width;
+    const avoid = doc.elements.filter((e) => e.type === 'image' && /логотип/i.test(e.name || '') && e.visible !== false)
+      .map((e) => ({ x: e.x * k, y: e.y * k, width: e.width * k, height: e.height * k }));
+    await applyWatermark(canvas, { draft: isDraft, author: session.nickname, exportId, opacity: settings.watermarkOpacity, corner: settings.watermarkCorner, avoid });
+    return canvas;
+  };
+  const toBlob = (canvas, type, q) => new Promise((r) => canvas.toBlob(r, type, q));
+
+  const download = async () => {
+    const { format, mult, quality } = exportOpts;
+    const type = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' }[format];
+    const blob = await toBlob(await renderFinal(format, mult), type, quality);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${(title || 'cnd').replace(/[\\/:*?"<>|]+/g, '_')}.${format}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    setExportOpen(false);
+  };
+
+  // Браузеры копируют картинки только в PNG
+  const copyToClipboard = () => {
+    if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') { flash('Браузер не умеет копировать картинки, скачайте файл'); return; }
+    const blobPromise = renderFinal('png-буфер', exportOpts.mult).then((c) => toBlob(c, 'image/png'));
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })])
+      .then(() => flash('Картинка скопирована — вставьте её в Discord (Ctrl+V)'))
+      .catch(() => flash('Не удалось скопировать. Разрешите доступ к буферу обмена или скачайте файл.'));
+    setExportOpen(false);
+  };
+
+  const [tplForm, setTplForm] = useState(null);
+  const saveAsTemplate = async () => {
+    const name = tplForm.name.trim(); if (!name) { flash('Введите название шаблона'); return; }
+    const tags = tplForm.tags.split(',').map((t) => t.trim()).filter(Boolean);
+    setTplForm(null);
+    const clean = { ...doc, elements: doc.elements.map((e) => ({ ...e })) };
+    try {
+      await api.saveTemplate({ name, tags, kind: doc.width > doc.height ? 'Разворот' : doc.width === doc.height ? 'Пост' : 'Газета', thumb: stageApi.current.toThumb(360), doc: clean });
+      flash('Шаблон опубликован — коллеги найдут его в поиске');
+    } catch (e) { flash(e.message); }
+  };
+
+  if (!doc) return <div className="editor"><div className="topbar">Загрузка…</div></div>;
+
+  const editingEl = doc.elements.find((e) => e.id === editingId);
+  const canReview = canManage(session.role);
+
+  return (
+    <div className="editor">
+      <div className="topbar">
+        <button onClick={async () => { await persist().catch(() => {}); go({ name: 'home' }); }}>← Работы</button>
+        <img className="logo" src={BRAND.iconWhite} alt="" />
+        <input className="title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        {statusBadge(status)}
+        <span className="small" style={{ opacity: 0.7 }}>{saved}</span>
+        <button title="Отменить (Ctrl+Z)" onClick={undo}>↶</button>
+        <button title="Повторить (Ctrl+Shift+Z)" onClick={redo}>↷</button>
+        <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))} style={{ width: 90, background: 'rgba(255,255,255,.08)', color: '#fff', borderColor: 'rgba(255,255,255,.2)' }}>
+          {[0.5, 0.75, 1, 1.5, 2, 3].map((z) => <option key={z} value={z} style={{ color: '#000' }}>{Math.round(z * 100)}%</option>)}
+        </select>
+        <div className="grow" />
+        <span className="who" title={`${session.nickname} · ${roleLabel(session.role)} · осталось ${left}`}>{author !== session.nickname ? `Автор: ${author}` : `${session.nickname} · ${left}`}</span>
+        {!canReview && ['draft', 'returned'].includes(status) && <button onClick={() => changeStatus('review')}>На проверку</button>}
+        {canReview && status !== 'approved' && <button onClick={() => changeStatus('approved')}>Одобрить</button>}
+        {canReview && status === 'review' && <button onClick={() => changeStatus('returned')}>Вернуть</button>}
+        <button onClick={() => setTplForm({ name: title, tags: '' })}>В шаблоны</button>
+        <button onClick={copyToClipboard} title="Ctrl+Shift+C">Копировать</button>
+        <div style={{ position: 'relative' }}>
+          <button className="primary" onClick={() => setExportOpen((v) => !v)}>Скачать</button>
+          {exportOpen && (
+            <div className="card menu">
+              <label>Формат</label>
+              <select value={exportOpts.format} onChange={(e) => setExportOpts({ ...exportOpts, format: e.target.value })}>
+                <option value="png">PNG — лучшее качество</option>
+                <option value="jpg">JPG — меньше вес, для публикации</option>
+                <option value="webp">WEBP</option>
+              </select>
+              <label>Размер</label>
+              <select value={exportOpts.mult} onChange={(e) => setExportOpts({ ...exportOpts, mult: Number(e.target.value) })}>
+                <option value={1}>1× ({doc.width}×{doc.height})</option>
+                <option value={2}>2× ({doc.width * 2}×{doc.height * 2})</option>
+                <option value={0.5}>0.5× (для превью)</option>
+              </select>
+              {exportOpts.format !== 'png' && (<><label>Качество: {Math.round(exportOpts.quality * 100)}%</label>
+                <input type="range" min="0.6" max="1" step="0.02" value={exportOpts.quality} onChange={(e) => setExportOpts({ ...exportOpts, quality: Number(e.target.value) })} /></>)}
+              {isDraft && <p className="small" style={{ color: 'var(--warn)' }}>Работа стажёра без одобрения выгружается с водяным знаком «ЧЕРНОВИК CND».</p>}
+              <button className="primary" style={{ width: '100%', marginTop: 10 }} onClick={download}>Скачать файл</button>
+              <button style={{ width: '100%', marginTop: 6 }} onClick={copyToClipboard}>Копировать в буфер (PNG)</button>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="editor-body">
+        <div className="rail">
+          {RAIL.map(([k, ico, label]) => (
+            <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}><span className="ico">{ico}</span>{label}</button>
+          ))}
+        </div>
+        <div className="drawer">
+          {tab === 'templates' && <TemplatesPanel applyTemplate={applyTemplate} />}
+          {tab === 'text' && <TextPanel add={add} />}
+          {tab === 'photos' && <PhotosPanel addImageFile={addImageFile} uploads={uploads} addImage={addImage} />}
+          {tab === 'elements' && <ElementsPanel add={add} />}
+          {tab === 'characters' && <CharactersPanel addImage={addImage} openPoser={setPoserSkin} />}
+          {tab === 'brand' && <BrandPanel addImage={addImage} applyColor={applyColor} applyFont={applyFont} />}
+          {/* скрытое поле выбора фото нужно и вне вкладки «Фото» (кнопка «Вставить фото сюда») */}
+          {tab !== 'photos' && <input id="photo-file" type="file" accept="image/*" hidden onChange={(e) => [...e.target.files].forEach((f) => addImageFile(f))} />}
+        </div>
+        <div className="workspace" ref={wsRef}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const target = stageApi.current?.elementAt(e.clientX, e.clientY);
+            const ph = doc.elements.find((x) => x.id === target && x.type === 'placeholder');
+            [...e.dataTransfer.files].forEach((f, i) => addImageFile(f, i === 0 && ph ? ph.id : null));
+          }}>
+          <div className="stage-shadow" style={{ position: 'relative' }}>
+            <CanvasStage ref={stageApi} doc={doc} scale={scale} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); if (id !== editingId) setEditingId(null); }}
+              onChange={update} onEditText={setEditingId} editingId={editingId} fontTick={fontTick} />
+            {editingEl && <TextOverlay el={editingEl} scale={scale} onDone={(text) => { if (text !== editingEl.text) update(editingEl.id, { text }); setEditingId(null); }} />}
+          </div>
+        </div>
+        <PropsPanel doc={doc} el={selected} update={update} updateDoc={updateDoc} actions={actions} select={setSelectedId} selectedId={selectedId} />
+      </div>
+      {poserSkin && <SkinPoser skin={poserSkin} onClose={() => setPoserSkin(null)} onInsert={(url) => { setPoserSkin(null); addImage(url, { name: '3D-персонаж' }); }} />}
+      {tplForm && (
+        <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && setTplForm(null)}>
+          <form className="modal" style={{ maxWidth: 420 }} onSubmit={(e) => { e.preventDefault(); saveAsTemplate(); }}>
+            <h2>Сохранить как шаблон</h2>
+            <p className="small muted">Шаблон появится в общей библиотеке, коллеги найдут его поиском.</p>
+            <label htmlFor="tpl-name">Название</label>
+            <input id="tpl-name" autoFocus value={tplForm.name} onChange={(e) => setTplForm({ ...tplForm, name: e.target.value })} />
+            <label htmlFor="tpl-tags">Теги через запятую</label>
+            <input id="tpl-tags" placeholder="газета, новости, срочно" value={tplForm.tags} onChange={(e) => setTplForm({ ...tplForm, tags: e.target.value })} />
+            <div className="row" style={{ marginTop: 14 }}>
+              <button type="submit" className="primary">Опубликовать шаблон</button>
+              <button type="button" onClick={() => setTplForm(null)}>Отмена</button>
+            </div>
+          </form>
+        </div>
+      )}
+      {toast && <div className="toast">{toast}</div>}
+    </div>
+  );
+}
+
+function TextOverlay({ el, scale, onDone }) {
+  const ref = useRef(null);
+  const [value, setValue] = useState(el.text);
+  useEffect(() => { ref.current.focus(); ref.current.select(); }, []);
+  useEffect(() => { const t = ref.current; t.style.height = 'auto'; t.style.height = `${t.scrollHeight}px`; }, [value]);
+  return (
+    <textarea ref={ref} className="text-editor" value={value} onChange={(e) => setValue(e.target.value)}
+      onBlur={() => onDone(value)}
+      onKeyDown={(e) => { if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); onDone(value); } e.stopPropagation(); }}
+      style={{
+        left: el.x * scale, top: el.y * scale, width: el.width * scale, fontSize: el.fontSize * scale,
+        fontFamily: el.fontFamily, fontWeight: el.fontStyle?.includes('bold') ? 700 : 400, fontStyle: el.fontStyle?.includes('italic') ? 'italic' : 'normal',
+        lineHeight: el.lineHeight || 1.2, color: el.fill, textAlign: el.align === 'justify' ? 'left' : el.align,
+        letterSpacing: (el.letterSpacing || 0) * scale, transform: `rotate(${el.rotation || 0}deg)`,
+      }} />
+  );
+}
+
+// Обрезка «cover»: картинка заполняет рамку без искажений
+async function coverCrop(src, w, h) {
+  const img = await loadImage(src);
+  const k = Math.max(w / img.width, h / img.height);
+  const c = document.createElement('canvas');
+  const outW = Math.min(2400, Math.round(w)); const outH = Math.round(outW * (h / w));
+  c.width = outW; c.height = outH;
+  const sw = w / k, sh = h / k; const sx = (img.width - sw) / 2, sy = (img.height - sh) / 2;
+  c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
+  return c.toDataURL('image/jpeg', 0.9);
+}
