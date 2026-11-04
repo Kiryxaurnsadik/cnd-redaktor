@@ -446,3 +446,4 @@ button.linkish { background: none; border: 0; padding: 0; color: var(--brand); t
 .perm-table input { width: 20px; height: 20px; cursor: pointer; }
 .perm-table .pos-names { font-weight: 400; font-size: 12px; color: var(--muted); display: block; }
 .perm-wrap { overflow-x: auto; }
+:root.has-ui-font, :root.has-ui-font body, :root.has-ui-font button, :root.has-ui-font input, :root.has-ui-font select, :root.has-ui-font textarea, :root.has-ui-font h1, :root.has-ui-font h2, :root.has-ui-font h3, :root.has-ui-font h4, :root.has-ui-font label { font-family: var(--ui-font); }

@@ -12,7 +12,7 @@ export const UI_BG_GRADIENTS = [
   'linear-gradient(135deg, #134e5e, #71b280)', 'linear-gradient(135deg, #0f0c29, #302b63, #24243e)', 'linear-gradient(135deg, #f7971e, #ffd200)',
 ];
 
-const KEYS = ['--brand', '--brand-2', '--brand-soft', '--brand-text', '--topbar', '--topbar-2', '--rail', '--ui-bg'];
+const KEYS = ['--ui-font', '--brand', '--brand-2', '--brand-soft', '--brand-text', '--topbar', '--topbar-2', '--rail', '--ui-bg'];
 
 export function applyUi(p) {
   const r = document.documentElement;
@@ -27,7 +27,13 @@ export function applyUi(p) {
     r.style.setProperty('--topbar-2', `color-mix(in srgb, ${a} 26%, #070d1c)`);
     r.style.setProperty('--rail', `color-mix(in srgb, ${a} 18%, #050912)`);
   }
-  r.style.fontFamily = p.uiFont && p.uiFont !== 'Inter' ? `'${p.uiFont}', Inter, system-ui, sans-serif` : '';
+  const font = p.uiFont && p.uiFont !== 'Inter' ? p.uiFont : null;
+  r.style.removeProperty('font-family');
+  r.classList.toggle('has-ui-font', !!font);
+  if (font) {
+    r.style.setProperty('--ui-font', `'${font}', Inter, system-ui, sans-serif`);
+    document.fonts?.load(`16px '${font}'`, 'АаЯя Aa').catch(() => {});
+  } else r.style.removeProperty('--ui-font');
   const bg = p.uiBg;
   let css = '';
   if (bg?.type === 'color' && bg.value) css = bg.value;
