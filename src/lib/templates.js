@@ -62,7 +62,7 @@ export const OFFICIAL_TEMPLATES = [
       elements: [
         T({ x: 40, y: 56, width: 1000, text: 'ПОДНИМИ РЕДАКЦИЮ С КОЛЕН', fontFamily: 'Russo One', fontSize: 70, fill: '#FFFFFF', align: 'center' }),
         E({ x: 300, y: 330, width: 480, height: 480, fill: '#0B7CFC', opacity: 0.35, gradient: { type: 'radial', from: 'rgba(11,124,252,0.9)', to: 'rgba(11,124,252,0)' } }),
-        I({ x: 350, y: 300, width: 380, height: 576, src: './help/side-character.png', name: 'Персонаж CND' }),
+        I({ x: 382, y: 300, width: 317, height: 576, src: './samples/guide.png', name: 'Гид CND' }),
         T({ x: 48, y: 250, width: 290, text: 'Мы — текстовая сила СМИ и первый фронт передачи информации.', fontFamily: 'PT Serif', fontSize: 32, fill: '#FFFFFF' }),
         T({ x: 48, y: 620, width: 290, text: 'Именно от нашего отдела зависит своевременная публикация новостей Калифорнии.', fontFamily: 'PT Serif', fontSize: 30, fill: '#FFFFFF' }),
         T({ x: 742, y: 250, width: 290, text: 'Отдел Редакции CND нуждается в кадрах как никогда.', fontFamily: 'PT Serif', fontSize: 32, fill: '#FFFFFF', align: 'right' }),

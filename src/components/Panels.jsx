@@ -56,7 +56,7 @@ export function PhotosPanel({ addImageFile, uploads, addImage }) {
 const SKINS_KEY = 'cnd_recent_skins';
 function loadSkins() { try { return JSON.parse(localStorage.getItem(SKINS_KEY)) || []; } catch { return []; } }
 
-export function CharactersPanel({ addImage, openPoser }) {
+export function CharactersPanel({ addImage, openPoser, embedded }) {
   const [nick, setNick] = useState('');
   const [source, setSource] = useState('mojang');
   const [skin, setSkin] = useState(null);
@@ -86,7 +86,7 @@ export function CharactersPanel({ addImage, openPoser }) {
 
   return (
     <>
-      <h3>Персонажи со скинов</h3>
+      {embedded ? <div className="el-sec">Свой персонаж по скину</div> : <h3>Персонажи со скинов</h3>}
       <p className="small muted thanks">{ADAMS_THANKS}</p>
       <label>Скин по никнейму</label>
       <div className="row">
@@ -102,7 +102,11 @@ export function CharactersPanel({ addImage, openPoser }) {
         Перетащите скин или нажмите
       </div>
       <input id="skin-file" type="file" accept="image/png" hidden onChange={(e) => byFile(e.target.files[0])} />
-      <button className="ghost small" style={{ marginTop: 6 }} onClick={() => useSkin('./skins/cnd-reporter.png', 'Репортёр CND')}>Нет скина под рукой? Взять пример «Репортёр CND»</button>
+      <label>Нет скина под рукой? Возьмите пример</label>
+      <div className="row">
+        <button className="grow small" onClick={() => useSkin('./skins/cnd-reporter.png', 'Репортёр CND')}>Репортёр CND</button>
+        <button className="grow small" onClick={() => useSkin('./skins/cnd-guide.png', 'Гид CND')}>Гид CND</button>
+      </div>
       {error && <div className="error">{error}</div>}
       {skin && (
         <div className="card" style={{ marginTop: 12, padding: 12 }}>

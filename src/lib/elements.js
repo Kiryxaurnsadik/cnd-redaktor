@@ -217,7 +217,8 @@ export function shapeSpec(s, fill = '#0B7CFC') {
 }
 
 export const PEOPLE = [
-  { id: 'p-side', name: 'Репортёр CND с микрофоном', src: './help/side-character.png', w: 416, h: 630 },
+  { id: 'p-guide', name: 'Гид CND 3D', src: './samples/guide.png' },
+  { id: 'p-guide-flat', name: 'Гид CND 2D', skin: './skins/cnd-guide.png', flat: true, w: 240, h: 480 },
   { id: 'p-3d', name: 'Репортёр CND 3D', src: './samples/reporter.png' },
   { id: 'p-flat', name: 'Репортёр CND 2D', skin: './skins/cnd-reporter.png', flat: true, w: 240, h: 480 },
   { id: 'p-head', name: 'Голова репортёра', skin: './skins/cnd-reporter.png', head: true, w: 300, h: 300 },

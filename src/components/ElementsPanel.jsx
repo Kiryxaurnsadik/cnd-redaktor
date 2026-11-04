@@ -10,6 +10,7 @@ import {
   parseSvgToShape, polygonPath, pushRecent, shapeSpec, starPath, tableSpec,
 } from '../lib/elements.js';
 import { renderFlatBody, renderHead } from '../lib/skin.js';
+import { CharactersPanel } from './Panels.jsx';
 import { compressImage, loadImage } from '../lib/util.js';
 
 const CHART_ICONS = { column: ChartColumn, bar: ChartBar, line: ChartLine, area: ChartArea, pie: ChartPie, donut: Donut, progress: Gauge };
@@ -84,7 +85,7 @@ const CATS = [
   { id: 'make', name: 'Создать фигуру', Icon: PencilRuler, color: '#2FB36D' },
 ];
 
-export default function ElementsPanel({ add, addImage, flash }) {
+export default function ElementsPanel({ add, addImage, flash, openPoser }) {
   const [cat, setCat] = useState(null);
   const [q, setQ] = useState('');
   const [recent, setRecent] = useState(loadRecent);
@@ -127,7 +128,7 @@ export default function ElementsPanel({ add, addImage, flash }) {
   const use = (it) => { it.run(); setRecent(pushRecent({ key: it.key })); };
   const found = q.trim() ? items.filter((it) => it.name.toLowerCase().includes(q.trim().toLowerCase())) : null;
   const recentItems = recent.map((r) => items.find((it) => it.key === r.key)).filter(Boolean).slice(0, 6);
-  const picks = ['people:p-side', 'icons:pin', 'shapes:star5', 'bubbles:speech', 'charts:column', 'frames:f-circle'].map((k) => items.find((it) => it.key === k)).filter(Boolean);
+  const picks = ['shapes:heart', 'icons:pin', 'shapes:star5', 'bubbles:speech', 'charts:column', 'frames:f-circle'].map((k) => items.find((it) => it.key === k)).filter(Boolean);
 
   const importFile = async (file) => {
     if (!file) return;
@@ -199,6 +200,7 @@ export default function ElementsPanel({ add, addImage, flash }) {
         <>
           <button className="el-back" onClick={() => setCat(null)}><ArrowLeft size={16} /> {current.name}</button>
           {cat === 'make' ? <ShapeMaker add={add} /> : grid(items.filter((it) => it.cat === cat), { names: ['charts', 'tables', 'people', 'mine', 'decor'].includes(cat) })}
+          {cat === 'people' && <div className="el-skins"><CharactersPanel addImage={addImage} openPoser={openPoser} embedded /></div>}
           {cat === 'frames' && <p className="small muted">Выделите рамку и перетащите фото на неё — фото обрежется по форме.</p>}
           {cat === 'charts' && <p className="small muted">Цифры и подписи меняются справа, когда диаграмма выделена.</p>}
           {cat === 'mine' && !items.some((it) => it.cat === 'mine') && <p className="small muted">Пока пусто. Импортируйте SVG или PNG, либо выделите что-то на холсте и нажмите «В элементы» справа.</p>}

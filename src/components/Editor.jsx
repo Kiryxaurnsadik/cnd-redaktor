@@ -1,6 +1,6 @@
 // Если крадёте, то крадите ради реально хороших людей
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, BadgeCheck, BookmarkPlus, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, Send, Shapes, Type, Undo2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, BookmarkPlus, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, Send, Shapes, Type, Undo2, X } from 'lucide-react';
 import ThemeToggle from './ThemeToggle.jsx';
 import { HelpButton, TIPS } from './Help.jsx';
 import { Who } from './TopBar.jsx';
@@ -10,7 +10,7 @@ import CanvasStage from './CanvasStage.jsx';
 import PropsPanel from './PropsPanel.jsx';
 import SkinPoser from './SkinPoser.jsx';
 import { BgRemoveModal, UpscaleModal } from './ImageTools.jsx';
-import { BrandPanel, CharactersPanel, PhotosPanel, TemplatesPanel, TextPanel } from './Panels.jsx';
+import { BrandPanel, PhotosPanel, TemplatesPanel, TextPanel } from './Panels.jsx';
 import ElementsPanel from './ElementsPanel.jsx';
 import { docThumb } from '../lib/thumb.js';
 import { elName } from './PropsPanel.jsx';
@@ -24,7 +24,7 @@ import { canManage, compressImage, loadImage, roleLabel, uid } from '../lib/util
 
 const RAIL = [
   ['templates', LayoutTemplate, 'Шаблоны'], ['text', Type, 'Текст'], ['photos', ImageIcon, 'Фото'],
-  ['elements', Shapes, 'Элементы'], ['characters', UserRound, 'Персонажи'], ['brand', BadgeCheck, 'Бренд'],
+  ['elements', Shapes, 'Элементы'], ['brand', BadgeCheck, 'Бренд'],
 ];
 
 export default function Editor({ session, left, go, open }) {
@@ -444,8 +444,7 @@ export default function Editor({ session, left, go, open }) {
           {tab === 'templates' && <TemplatesPanel applyTemplate={applyTemplate} />}
           {tab === 'text' && <TextPanel add={add} />}
           {tab === 'photos' && <PhotosPanel addImageFile={addImageFile} uploads={uploads} addImage={addImage} />}
-          {tab === 'elements' && <ElementsPanel add={add} addImage={addImage} flash={flash} />}
-          {tab === 'characters' && <CharactersPanel addImage={addImage} openPoser={(skin, mode = 'body') => setPoserSkin({ skin, mode })} />}
+          {tab === 'elements' && <ElementsPanel add={add} addImage={addImage} flash={flash} openPoser={(skin, mode = 'body') => setPoserSkin({ skin, mode })} />}
           {tab === 'brand' && <BrandPanel addImage={addImage} applyColor={applyColor} applyFont={applyFont} />}
           {tab !== 'photos' && <input id="photo-file" type="file" accept="image/*" hidden onChange={(e) => { [...e.target.files].forEach((f) => addImageFile(f)); e.target.value = ''; }} />}
         </div>
