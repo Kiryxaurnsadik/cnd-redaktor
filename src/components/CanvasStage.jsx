@@ -1,6 +1,7 @@
 // Если крадёте, то крадите ради реально хороших людей
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Stage, Layer, Rect, Text, Image as KImage, Ellipse, Line, Group, Transformer, Path, Wedge, Arc, Circle } from 'react-konva';
+const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 import { cssFilter, gradientProps, scalePath, shadowProps } from '../lib/pathscale.js';
 import { maskPath } from '../lib/elements.js';
 
@@ -40,7 +41,14 @@ function FrameBorder({ el }) {
     : <Rect width={el.width} height={el.height} cornerRadius={frameRadius(el)} stroke={el.frameStroke} strokeWidth={el.frameStrokeWidth} listening={false} />;
 }
 
-function ImageEl({ el, common }) {
+export function cropBox(el, iw, ih) {
+  const c = el.crop || {}; const W = el.width, H = el.height;
+  const k = Math.max(W / iw, H / ih) * Math.max(1, c.zoom || 1);
+  const fw = iw * k, fh = ih * k;
+  return { fw, fh, ox: (fw - W) * (c.x ?? 0.5), oy: (fh - H) * (c.y ?? 0.5) };
+}
+
+function ImageEl({ el, common, cropping, onCrop }) {
   const img = useImg(el.src);
   const ref = useRef(null);
   const filter = cssFilter(el.fx);
@@ -51,9 +59,44 @@ function ImageEl({ el, common }) {
       n.cache({ pixelRatio: ratio }); n.filters([filter]);
     } else { n.filters([]); n.clearCache(); }
     n.getLayer()?.batchDraw();
-  }, [img, filter, el.width, el.height, el.flipX, el.flipY, el.cornerRadius]);
+  }, [img, filter, el.width, el.height, el.flipX, el.flipY, el.cornerRadius, el.crop?.zoom, cropping]);
   const radius = frameRadius(el);
   const framed = !!clipFor(el);
+  if (el.crop && img) {
+    const { fw, fh, ox, oy } = cropBox(el, img.width, img.height);
+    const W = el.width, H = el.height;
+    const clip = clipFor(el) || ((ctx) => { ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(0, 0, W, H, radius); else ctx.rect(0, 0, W, H); ctx.closePath(); });
+    const fromNode = (n) => {
+      const left = el.flipX ? n.x() - fw : n.x(); const top = el.flipY ? n.y() - fh : n.y();
+      let cx = fw > W ? -left / (fw - W) : 0.5; let cy = fh > H ? -top / (fh - H) : 0.5;
+      if (el.flipX) cx = 1 - cx; if (el.flipY) cy = 1 - cy;
+      return { x: Math.min(1, Math.max(0, cx)), y: Math.min(1, Math.max(0, cy)) };
+    };
+    const sx = el.flipX ? 1 - (el.crop.x ?? 0.5) : (el.crop.x ?? 0.5); const sy = el.flipY ? 1 - (el.crop.y ?? 0.5) : (el.crop.y ?? 0.5);
+    const left = -(fw - W) * sx; const top = -(fh - H) * sy;
+    return (
+      <Group {...common} draggable={cropping ? false : common.draggable} {...(el.blend ? { globalCompositeOperation: el.blend } : {})}>
+        {cropping && <KImage image={img} width={fw} height={fh} x={el.flipX ? left + fw : left} y={el.flipY ? top + fh : top} scaleX={el.flipX ? -1 : 1} scaleY={el.flipY ? -1 : 1} opacity={0.35} listening={false} />}
+        <Group clipFunc={clip}>
+          <KImage ref={ref} image={img} width={fw} height={fh} x={el.flipX ? left + fw : left} y={el.flipY ? top + fh : top}
+            scaleX={el.flipX ? -1 : 1} scaleY={el.flipY ? -1 : 1} draggable={cropping}
+            dragBoundFunc={function (pos) {
+              const g = this.getParent().getAbsoluteTransform().copy(); const inv = g.copy().invert();
+              const local = inv.point(pos);
+              const minX = W - fw, minY = H - fh;
+              let lx = el.flipX ? local.x - fw : local.x; let ly = el.flipY ? local.y - fh : local.y;
+              lx = Math.min(0, Math.max(minX, lx)); ly = Math.min(0, Math.max(minY, ly));
+              return g.point({ x: el.flipX ? lx + fw : lx, y: el.flipY ? ly + fh : ly });
+            }}
+            onDragMove={(e) => { e.cancelBubble = true; }}
+            onDragEnd={(e) => { e.cancelBubble = true; onCrop?.({ ...el.crop, ...fromNode(e.target) }); }}
+            stroke={el.strokeWidth ? el.stroke : undefined} strokeWidth={el.strokeWidth || 0} />
+        </Group>
+        {cropping && <Rect width={W} height={H} stroke="#0B7CFC" strokeWidth={2} dash={[8, 6]} listening={false} strokeScaleEnabled={false} />}
+        <FrameBorder el={el} />
+      </Group>
+    );
+  }
   return (
     <Group {...common} {...(el.blend ? { globalCompositeOperation: el.blend } : {})}>
       <Group clipFunc={clipFor(el)}>
@@ -277,7 +320,8 @@ const CanvasStage = forwardRef(function CanvasStage(
       case 'line':
         return <Line {...common} points={el.points} stroke={el.stroke} strokeWidth={el.strokeWidth} hitStrokeWidth={20} lineCap="round" dash={el.dash ? [el.strokeWidth * 3, el.strokeWidth * 2] : undefined} {...sh} />;
       case 'image':
-        return <ImageEl key={el.id} el={el} common={common} />;
+        return <ImageEl key={el.id} el={el} common={{ ...common, onDblClick: () => onEditText(el.id), onDblTap: () => onEditText(el.id) }}
+          cropping={editingId === el.id} onCrop={(crop) => onChange(el.id, { crop })} />;
       case 'placeholder':
         return (
           <Group {...common}>
@@ -308,7 +352,7 @@ const CanvasStage = forwardRef(function CanvasStage(
         {guides.map((g, i) => (
           <Line key={i} points={g.v ? [g.p, 0, g.p, doc.height] : [0, g.p, doc.width, g.p]} stroke="#ff2d87" strokeWidth={1 / scale} dash={[4 / scale, 4 / scale]} listening={false} />
         ))}
-        <Transformer ref={trRef} rotateEnabled anchorSize={10} borderStroke="#0B7CFC" anchorStroke="#0B7CFC" anchorCornerRadius={5}
+        <Transformer ref={trRef} rotateEnabled anchorSize={COARSE ? 20 : 10} rotateAnchorOffset={COARSE ? 36 : 30} padding={COARSE ? 4 : 0} borderStroke="#0B7CFC" anchorStroke="#0B7CFC" anchorCornerRadius={5}
           rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
           boundBoxFunc={(oldBox, newBox) => (newBox.width < 5 || newBox.height < 5 ? oldBox : newBox)} />
       </Layer>

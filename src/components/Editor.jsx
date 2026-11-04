@@ -1,6 +1,6 @@
 // Если крадёте, то крадите ради реально хороших людей
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, BadgeCheck, BookmarkPlus, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, Send, Shapes, Type, Undo2, X } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, BookmarkPlus, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, Send, Shapes, Type, Undo2, X, SlidersHorizontal, Minus, Plus, ChevronDown } from 'lucide-react';
 import ThemeToggle from './ThemeToggle.jsx';
 import { HelpButton, TIPS } from './Help.jsx';
 import { Who } from './TopBar.jsx';
@@ -36,6 +36,8 @@ export default function Editor({ session, left, go, open }) {
   const [imageTool, setImageTool] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [tab, setTab] = useState('text');
+  const mobile = useMedia('(max-width: 1024px)');
+  const [sheet, setSheet] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [fit, setFit] = useState(0.3);
   const [uploads, setUploads] = useState([]);
@@ -90,12 +92,32 @@ export default function Editor({ session, left, go, open }) {
     if (!doc) return;
     const calc = () => {
       const ws = wsRef.current; if (!ws) return;
-      setFit(Math.min((ws.clientWidth - 60) / doc.width, (ws.clientHeight - 60) / doc.height));
+      const pad = 2 * (parseFloat(getComputedStyle(ws).paddingLeft) || 30);
+      const w = ws.clientWidth - pad; const h = ws.clientHeight - pad;
+      if (w > 20 && h > 20) setFit(Math.min(w / doc.width, h / doc.height));
     };
-    calc(); window.addEventListener('resize', calc);
-    return () => window.removeEventListener('resize', calc);
+    calc();
+    const ro = new ResizeObserver(calc); if (wsRef.current) ro.observe(wsRef.current);
+    window.addEventListener('resize', calc);
+    return () => { ro.disconnect(); window.removeEventListener('resize', calc); };
   }, [doc?.width, doc?.height]);
   const scale = Math.max(0.05, fit * zoom);
+  const pointerDown = useRef(false);
+  useEffect(() => {
+    const down = () => { pointerDown.current = true; };
+    const up = () => { pointerDown.current = false; };
+    window.addEventListener('pointerdown', down, true); window.addEventListener('pointerup', up, true); window.addEventListener('pointercancel', up, true);
+    return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('pointerup', up, true); window.removeEventListener('pointercancel', up, true); };
+  }, []);
+  useEffect(() => {
+    if (!mobile) return undefined;
+    if (!selectedId) { setSheet((s) => (s === 'props' ? null : s)); return undefined; }
+    const open = () => setSheet('props');
+    if (!pointerDown.current) { open(); return undefined; }
+    const onUp = () => setTimeout(open, 0);
+    window.addEventListener('pointerup', onUp, { once: true });
+    return () => window.removeEventListener('pointerup', onUp);
+  }, [selectedId, mobile]);
 
   const touched = useRef(false);
   const commit = useCallback((next) => {
@@ -137,9 +159,9 @@ export default function Editor({ session, left, go, open }) {
     const targetId = placeholderTarget.current; placeholderTarget.current = null;
     const ph = targetId ? doc.elements.find((e) => e.id === targetId && isFrame(e)) : doc.elements.find((e) => e.id === selectedId && isFrame(e, true));
     if (ph && !opts.name) {
-      const cropped = await coverCrop(src, ph.width, ph.height);
-      commit((d) => ({ ...d, elements: d.elements.map((e) => (e.id === ph.id ? photoInFrame(e, cropped) : e)) }));
+      commit((d) => ({ ...d, elements: d.elements.map((e) => (e.id === ph.id ? { ...photoInFrame(e, src), crop: { x: 0.5, y: 0.5, zoom: 1 } } : e)) }));
       setSelectedId(ph.id);
+      flash(mobile ? 'Фото в рамке. Двойное касание — сдвинуть фото внутри' : 'Фото в рамке. Двойной клик — сдвинуть фото внутри рамки');
       return;
     }
     add({ type: 'image', src, width, height, name: opts.name });
@@ -155,6 +177,8 @@ export default function Editor({ session, left, go, open }) {
   };
 
   const actions = {
+    cropping: !!selected && editingId === selected.id,
+    toggleCrop: () => { if (!selected) return; if (editingId === selected.id) { setEditingId(null); return; } if (!selected.crop) update(selected.id, { crop: { x: 0.5, y: 0.5, zoom: 1 } }); setEditingId(selected.id); },
     remove: () => { if (!selected) return; commit((d) => ({ ...d, elements: d.elements.filter((e) => e.id !== selected.id) })); setSelectedId(null); },
     duplicate: () => {
       if (!selected) return;
@@ -241,7 +265,7 @@ export default function Editor({ session, left, go, open }) {
       if (typing || !selected) return;
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); actions.remove(); }
       else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); actions.duplicate(); }
-      else if (e.key === 'Escape') setSelectedId(null);
+      else if (e.key === 'Escape') { if (editingId) setEditingId(null); else setSelectedId(null); }
       else if (e.key.startsWith('Arrow') && !selected.locked) {
         e.preventDefault(); const s = e.shiftKey ? 10 : 1;
         const dx = e.key === 'ArrowLeft' ? -s : e.key === 'ArrowRight' ? s : 0; const dy = e.key === 'ArrowUp' ? -s : e.key === 'ArrowDown' ? s : 0;
@@ -373,7 +397,7 @@ export default function Editor({ session, left, go, open }) {
   return (
     <div className="editor">
       <div className="topbar">
-        <button onClick={async () => { if (touched.current) await persist().catch(() => {}); go({ name: 'home' }); }} title="Сохранить и выйти к работам"><ArrowLeft size={16} /> Работы</button>
+        <button onClick={async () => { if (touched.current) await persist().catch(() => {}); go({ name: 'home' }); }} title="Сохранить и выйти к работам" aria-label="Работы"><ArrowLeft size={16} /> <span className="lbl">Работы</span></button>
         <img className="logo" src={BRAND.iconWhite} alt="" />
         <input className="title" value={title} onChange={(e) => { touched.current = true; setTitle(e.target.value); }} />
         <span className="saved">{saved}</span>
@@ -385,13 +409,12 @@ export default function Editor({ session, left, go, open }) {
         </select>
         <div className="grow" />
         <Who compact session={session} label={author !== session.nickname ? `Автор: ${author}` : session.nickname} />
-        <button onClick={() => setTplForm({ name: title, tags: '' })} title="Опубликовать дизайн как шаблон для коллег"><BookmarkPlus size={16} /> В шаблоны</button>
-        <button onClick={copyToClipboard} title="Копировать картинку в буфер (Ctrl+Shift+C)"><Copy size={16} /> Копировать</button>
+        <button className="hide-phone" onClick={() => setTplForm({ name: title, tags: '' })} title="Опубликовать дизайн как шаблон для коллег"><BookmarkPlus size={16} /> <span className="lbl">В шаблоны</span></button>
+        <button className="hide-phone" onClick={copyToClipboard} title="Копировать картинку в буфер (Ctrl+Shift+C)" aria-label="Копировать"><Copy size={16} /> <span className="lbl">Копировать</span></button>
         <HelpButton start="editor" role={session.role} />
-        <UserSettingsButton />
-        <ThemeToggle />
+        <span className="hide-phone row" style={{ gap: 8 }}><UserSettingsButton /><ThemeToggle /></span>
         <div style={{ position: 'relative' }}>
-          <button className="primary" onClick={() => setExportOpen((v) => !v)}><Download size={16} /> Скачать</button>
+          <button className="primary" onClick={() => setExportOpen((v) => !v)} aria-label="Скачать"><Download size={16} /> <span className="lbl-keep">Скачать</span></button>
           {exportOpen && (
             <div className="card menu">
               <label>Формат</label>
@@ -418,6 +441,7 @@ export default function Editor({ session, left, go, open }) {
               </label>
               <button className="primary" style={{ width: '100%', marginTop: 10 }} onClick={download}><Download size={16} /> Скачать файл</button>
               <button style={{ width: '100%', marginTop: 6 }} onClick={copyToClipboard}><Copy size={16} /> Копировать в буфер (PNG)</button>
+              {mobile && <button style={{ width: '100%', marginTop: 6 }} onClick={() => { setExportOpen(false); setTplForm({ name: title, tags: '' }); }}><BookmarkPlus size={16} /> Опубликовать как шаблон</button>}
               {!!channels.length && (
                 <div className="menu-discord">
                   <label>Отправить в Discord</label>
@@ -437,10 +461,19 @@ export default function Editor({ session, left, go, open }) {
       <div className="editor-body">
         <div className="rail">
           {RAIL.map(([k, Ico, label]) => (
-            <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}><Ico size={22} strokeWidth={1.8} />{label}</button>
+            <button key={k} className={tab === k && (!mobile || sheet === 'drawer') ? 'active' : ''}
+              onClick={() => { if (mobile) setSheet((s) => (s === 'drawer' && tab === k ? null : 'drawer')); setTab(k); }}>
+              <Ico size={22} strokeWidth={1.8} />{label}
+            </button>
           ))}
+          {mobile && (
+            <button className={sheet === 'props' ? 'active' : ''} onClick={() => setSheet((s) => (s === 'props' ? null : 'props'))}>
+              <SlidersHorizontal size={22} strokeWidth={1.8} />{selected ? 'Свойства' : 'Лист'}
+            </button>
+          )}
         </div>
-        <div className="drawer">
+        <div className={`drawer ${mobile ? 'sheet' : ''}`} hidden={mobile && sheet !== 'drawer'}>
+          {mobile && <SheetHead title={(RAIL.find((r) => r[0] === tab) || [])[2]} onClose={() => setSheet(null)} />}
           {tab === 'templates' && <TemplatesPanel applyTemplate={applyTemplate} />}
           {tab === 'text' && <TextPanel add={add} />}
           {tab === 'photos' && <PhotosPanel addImageFile={addImageFile} uploads={uploads} addImage={addImage} />}
@@ -459,9 +492,9 @@ export default function Editor({ session, left, go, open }) {
           <div className="stage-shadow" style={{ position: 'relative' }}>
             <CanvasStage ref={stageApi} doc={doc} scale={scale} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); if (id !== editingId) setEditingId(null); }}
               onChange={update} onEditText={setEditingId} editingId={editingId} fontTick={fontTick} />
-            {editingEl && <TextOverlay el={editingEl} scale={scale} onDone={(text) => { if (text !== editingEl.text) update(editingEl.id, { text }); setEditingId(null); }} />}
+            {editingEl?.type === 'text' && <TextOverlay el={editingEl} scale={scale} onDone={(text) => { if (text !== editingEl.text) update(editingEl.id, { text }); setEditingId(null); }} />}
           </div>
-          {!doc.elements.length && <div className="empty-hint"><div>Лист пустой. Выберите <b>шаблон</b> или добавьте <b>текст</b> слева. Фото можно просто перетащить сюда.</div></div>}
+          {!doc.elements.length && <div className="empty-hint"><div>Лист пустой. Выберите <b>шаблон</b> или добавьте <b>текст</b>{mobile ? ' на панели снизу.' : ' слева. Фото можно просто перетащить сюда.'}</div></div>}
           {tipOn && (
             <div className="tipbar">
               <Lightbulb size={16} /><span className="grow">{TIPS[tipIdx % TIPS.length]}</span>
@@ -470,7 +503,17 @@ export default function Editor({ session, left, go, open }) {
             </div>
           )}
         </div>
+        {mobile && (
+          <div className="zoom-fab">
+            <button aria-label="Уменьшить" onClick={() => setZoom((z) => Math.max(0.5, +(z - 0.25).toFixed(2)))}><Minus size={16} /></button>
+            <button className="zoom-val" onClick={() => setZoom(1)} title="По размеру экрана">{Math.round(zoom * 100)}%</button>
+            <button aria-label="Увеличить" onClick={() => setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))}><Plus size={16} /></button>
+          </div>
+        )}
+        <div className={mobile ? 'sheet props-sheet' : 'props-host'} hidden={mobile && sheet !== 'props'}>
+          {mobile && <SheetHead title={selected ? 'Свойства' : 'Лист и слои'} onClose={() => { setSheet(null); if (selected) setSelectedId(null); }} />}
         <PropsPanel doc={doc} el={selected} update={update} updateDoc={updateDoc} actions={actions} select={setSelectedId} selectedId={selectedId} />
+        </div>
       </div>
       {imageTool && selected?.type === 'image' && (() => {
         const Tool = imageTool === 'bg' ? BgRemoveModal : UpscaleModal;
@@ -498,6 +541,25 @@ export default function Editor({ session, left, go, open }) {
   );
 }
 
+function SheetHead({ title, onClose }) {
+  return (
+    <div className="sheet-head">
+      <b className="grow">{title}</b>
+      <button className="icon ghost" aria-label="Свернуть" onClick={onClose}><ChevronDown size={20} /></button>
+    </div>
+  );
+}
+
+function useMedia(q) {
+  const [m, setM] = useState(() => typeof matchMedia === 'function' && matchMedia(q).matches);
+  useEffect(() => {
+    const mq = matchMedia(q); const on = () => setM(mq.matches);
+    mq.addEventListener('change', on); on();
+    return () => mq.removeEventListener('change', on);
+  }, [q]);
+  return m;
+}
+
 function TextOverlay({ el, scale, onDone }) {
   const ref = useRef(null);
   const [value, setValue] = useState(el.text);
@@ -514,17 +576,6 @@ function TextOverlay({ el, scale, onDone }) {
         letterSpacing: (el.letterSpacing || 0) * scale, transform: `rotate(${el.rotation || 0}deg)`,
       }} />
   );
-}
-
-async function coverCrop(src, w, h) {
-  const img = await loadImage(src);
-  const k = Math.max(w / img.width, h / img.height);
-  const c = document.createElement('canvas');
-  const outW = Math.min(2400, Math.round(w)); const outH = Math.round(outW * (h / w));
-  c.width = outW; c.height = outH;
-  const sw = w / k, sh = h / k; const sx = (img.width - sw) / 2, sy = (img.height - sh) / 2;
-  c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
-  return c.toDataURL('image/jpeg', 0.9);
 }
 
 function isFrame(e, strict = false) {

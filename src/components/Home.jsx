@@ -84,8 +84,8 @@ export default function Home({ session, logout, left, go }) {
     <>
       <TopBar session={session} left={left} logout={logout} help="editor">
         <span className="brand-name">CND Редактор</span>
-        <button onClick={() => go({ name: 'archive' })}><ArchiveIcon size={16} /> Архив</button>
-        {canManage(session.role) && <button onClick={() => go({ name: 'admin' })}><Shield size={16} /> Админка</button>}
+        <button onClick={() => go({ name: 'archive' })} title="Архив" aria-label="Архив"><ArchiveIcon size={16} /> <span className="lbl">Архив</span></button>
+        {canManage(session.role) && <button onClick={() => go({ name: 'admin' })} title="Админка" aria-label="Админка"><Shield size={16} /> <span className="lbl">Админка</span></button>}
       </TopBar>
       <div className="page">
         {error && <div className="error">{error}</div>}

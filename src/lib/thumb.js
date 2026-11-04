@@ -128,7 +128,15 @@ export async function docThumb(doc, key, maxSide = 360) {
       if (e.type === 'table') ctx.fillRect(0, 0, e.width, e.height / Math.max(1, e.cells?.length || 1));
       else (e.data || []).forEach((d, i, a) => { const bw = e.width / a.length; const mx = Math.max(1, ...a.map((x) => Number(x.value) || 0)); const bh = (e.height * 0.9 * (Number(d.value) || 0)) / mx; ctx.fillRect(i * bw + bw * 0.2, e.height - bh, bw * 0.6, bh); });
     } else if (e.type === 'image' && e.src) {
-      try { const img = await loadImage(e.src); ctx.drawImage(img, 0, 0, e.width, e.height); } catch {}
+      try {
+        const img = await loadImage(e.src);
+        if (e.crop) {
+          const c = e.crop; const k = Math.max(e.width / img.width, e.height / img.height) * Math.max(1, c.zoom || 1);
+          const fw = img.width * k, fh = img.height * k;
+          ctx.beginPath(); ctx.rect(0, 0, e.width, e.height); ctx.clip();
+          ctx.drawImage(img, -(fw - e.width) * (c.x ?? 0.5), -(fh - e.height) * (c.y ?? 0.5), fw, fh);
+        } else ctx.drawImage(img, 0, 0, e.width, e.height);
+      } catch {}
     }
     ctx.restore();
   }

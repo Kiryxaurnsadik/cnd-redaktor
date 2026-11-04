@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical,
   Bold, BookmarkPlus, CaseSensitive, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, CopyPlus, Eye, EyeOff, FlipHorizontal2,
-  FlipVertical2, Italic, Lock, RotateCcw, Sparkles, Trash2, Underline, Unlock, Wand2,
+  FlipVertical2, Italic, Lock, Move, RotateCcw, Sparkles, Trash2, Underline, Unlock, Wand2,
 } from 'lucide-react';
 import { BRAND_COLORS } from '../lib/brand.js';
 import { useFonts } from '../lib/fonts.js';
@@ -40,6 +40,32 @@ function Slider({ label, value, min, max, step = 1, onChange, unit = '' }) {
       <label>{label}: {value}{unit}</label>
       <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
     </>
+  );
+}
+
+const CROP_POS = [['↖', 'Слева сверху'], ['↑', 'Сверху'], ['↗', 'Справа сверху'], ['←', 'Слева'], ['•', 'По центру'], ['→', 'Справа'], ['↙', 'Слева снизу'], ['↓', 'Снизу'], ['↘', 'Справа снизу']];
+
+function CropBox({ el, set, cropping, toggle }) {
+  const c = { x: 0.5, y: 0.5, zoom: 1, ...(el.crop || {}) };
+  const put = (p) => set({ crop: { ...c, ...p } });
+  return (
+    <Section title="Какая часть фото видна" open={!!(el.mask || el.clipPath || el.crop)}>
+      <div className="crop-grid">
+        {CROP_POS.map(([ic, name], i) => {
+          const x = (i % 3) / 2, y = Math.floor(i / 3) / 2;
+          const on = Math.abs(c.x - x) < 0.01 && Math.abs(c.y - y) < 0.01;
+          return <button key={name} className={on ? 'on' : ''} title={name} aria-label={name} onClick={() => put({ x, y })}>{ic}</button>;
+        })}
+      </div>
+      <Slider label="Приблизить" value={Math.round(c.zoom * 100)} min={100} max={400} step={5} unit="%" onChange={(v) => put({ zoom: v / 100 })} />
+      <Slider label="Влево ↔ вправо" value={Math.round(c.x * 100)} min={0} max={100} unit="%" onChange={(v) => put({ x: v / 100 })} />
+      <Slider label="Вверх ↕ вниз" value={Math.round(c.y * 100)} min={0} max={100} unit="%" onChange={(v) => put({ y: v / 100 })} />
+      <div className="row wrap" style={{ marginTop: 8 }}>
+        <button className={cropping ? 'primary' : ''} onClick={toggle}><Move size={15} /> {cropping ? 'Готово' : 'Двигать фото пальцем или мышью'}</button>
+        <button onClick={() => set({ crop: { x: 0.5, y: 0.5, zoom: 1 } })}>Сбросить</button>
+      </div>
+      <p className="small muted">Двойной клик или двойное касание по фото тоже включает сдвиг. Выйти — клик мимо фото или Esc.</p>
+    </Section>
   );
 }
 
@@ -370,6 +396,7 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
           {el.type === 'table' && <TableBox el={el} set={set} />}
           {el.type === 'image' && (
             <>
+              <CropBox el={el} set={set} cropping={actions.cropping} toggle={actions.toggleCrop} />
               <FlipRow el={el} set={set} />
               <label>Обрезать по форме</label>
               <select value={el.clipPath ? '__own' : el.mask || ''} onChange={(e) => e.target.value !== '__own' && set({ mask: e.target.value || undefined, clipPath: undefined, clipVb: undefined })}>

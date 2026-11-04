@@ -26,7 +26,7 @@ export default function TopBar({ session, logout, children, help }) {
       <HelpButton start={help} role={session?.role} />
       <UserSettingsButton />
       <ThemeToggle />
-      <button onClick={logout} title="Выйти"><LogOut size={16} /> Выйти</button>
+      <button onClick={logout} title="Выйти" aria-label="Выйти"><LogOut size={16} /> <span className="lbl">Выйти</span></button>
     </div>
   );
 }
