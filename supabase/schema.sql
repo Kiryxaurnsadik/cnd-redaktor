@@ -2,7 +2,9 @@
 -- Как применить: Supabase → SQL Editor → вставить весь файл → Run.
 -- Все таблицы закрыты для прямого доступа (RLS без политик), работа только через функции ниже.
 
-create extension if not exists pgcrypto;
+-- На Supabase pgcrypto живёт в схеме extensions, поэтому функции ищут его там
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 create table if not exists cnd_tokens (
   id uuid primary key default gen_random_uuid(),
@@ -111,11 +113,11 @@ begin
   return 'CND-' || substr(raw, 1, 4) || '-' || substr(raw, 5, 4);
 end $$;
 
-create or replace function cnd_hash(s text) returns text language sql immutable as $$
+create or replace function cnd_hash(s text) returns text language sql immutable set search_path = public, extensions as $$
   select encode(digest(s, 'sha256'), 'hex')
 $$;
 
-create or replace function cnd_gen_code() returns text language plpgsql as $$
+create or replace function cnd_gen_code() returns text language plpgsql set search_path = public, extensions as $$
 declare alphabet text := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; b bytea := gen_random_bytes(8); s text := ''; i int;
 begin
   for i in 0..7 loop s := s || substr(alphabet, (get_byte(b, i) % 32) + 1, 1); end loop;
@@ -123,7 +125,7 @@ begin
 end $$;
 
 create or replace function cnd_session(p_session text) returns cnd_sessions
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions; t cnd_tokens; l cnd_logins;
 begin
   select * into s from cnd_sessions where secret_hash = cnd_hash(coalesce(p_session,''));
@@ -137,7 +139,7 @@ begin
 end $$;
 
 create or replace function cnd_manager(p_session text) returns cnd_sessions
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
   if s.role not in ('editor','admin') then raise exception 'Недостаточно прав'; end if;
@@ -154,7 +156,7 @@ $$;
 -- ---------- первый админ ----------
 -- Один раз: select cnd_bootstrap_admin('ВашНик');  → вернёт токен главного админа на 42 часа.
 create or replace function cnd_bootstrap_admin(p_nickname text) returns text
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare code text := cnd_gen_code();
 begin
   if exists (select 1 from cnd_tokens where role = 'admin' and not revoked and (expires_at is null or expires_at > now())) then
@@ -168,7 +170,7 @@ revoke execute on function cnd_bootstrap_admin(text) from public, anon, authenti
 
 -- ---------- вход ----------
 create or replace function cnd_login(p_code text, p_nickname text, p_id_photo text, p_user_agent text)
-returns jsonb language plpgsql security definer set search_path = public as $$
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare t cnd_tokens; lid uuid; secret text; st text; mode text; reason text := null; sid uuid;
 begin
   select * into t from cnd_tokens where hash = cnd_hash(cnd_norm_code(p_code));
@@ -203,7 +205,7 @@ begin
 end $$;
 
 create or replace function cnd_restore(p_session text) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session); st text; mode text;
 begin
   select status into st from cnd_logins where id = s.login_id;
@@ -214,13 +216,13 @@ begin
 end $$;
 
 create or replace function cnd_logout(p_session text) returns void
-language sql security definer set search_path = public as $$
+language sql security definer set search_path = public, extensions as $$
   delete from cnd_sessions where secret_hash = cnd_hash(coalesce(p_session,''))
 $$;
 
 -- ---------- токены ----------
 create or replace function cnd_issue_token(p_session text, p_nickname text, p_role text, p_hours int, p_note text, p_max_uses int)
-returns jsonb language plpgsql security definer set search_path = public as $$
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_manager(p_session); code text := cnd_gen_code(); t cnd_tokens;
 begin
   if s.role <> 'admin' and p_role in ('editor','admin') then
@@ -234,18 +236,18 @@ begin
 end $$;
 
 create or replace function cnd_list_tokens(p_session text) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform cnd_manager(p_session);
   return coalesce((select jsonb_agg(cnd_token_json(t) order by t.created_at desc) from cnd_tokens t), '[]'::jsonb);
 end $$;
 
 create or replace function cnd_revoke_token(p_session text, p_id uuid) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin perform cnd_manager(p_session); update cnd_tokens set revoked = true where id = p_id; end $$;
 
 create or replace function cnd_extend_token(p_session text, p_id uuid, p_hours int) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform cnd_manager(p_session);
   update cnd_tokens set revoked = false,
@@ -256,7 +258,7 @@ end $$;
 
 -- ---------- журнал входов ----------
 create or replace function cnd_list_logins(p_session text) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform cnd_manager(p_session);
   delete from cnd_logins where at < now() - interval '30 days';
@@ -268,16 +270,16 @@ begin
 end $$;
 
 create or replace function cnd_set_login_status(p_session text, p_id uuid, p_status text) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin perform cnd_manager(p_session); update cnd_logins set status = p_status where id = p_id; end $$;
 
 -- ---------- настройки ----------
 create or replace function cnd_get_settings(p_session text) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin perform cnd_session(p_session); return (select data from cnd_settings where id = 1); end $$;
 
 create or replace function cnd_save_settings(p_session text, p_data jsonb) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
   if s.role <> 'admin' then raise exception 'Только для админа'; end if;
@@ -292,7 +294,7 @@ create or replace function cnd_work_json(w cnd_works, with_doc boolean) returns 
 $$;
 
 create or replace function cnd_list_works(p_session text, p_all boolean) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
   if p_all and s.role not in ('editor','admin') then raise exception 'Недостаточно прав'; end if;
@@ -301,7 +303,7 @@ begin
 end $$;
 
 create or replace function cnd_get_work(p_session text, p_id text) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session); w cnd_works;
 begin
   select * into w from cnd_works where id = p_id;
@@ -311,7 +313,7 @@ begin
 end $$;
 
 create or replace function cnd_save_work(p_session text, p_work jsonb) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session); w cnd_works; new_status text := coalesce(p_work->>'status', 'draft');
 begin
   select * into w from cnd_works where id = p_work->>'id';
@@ -329,7 +331,7 @@ begin
 end $$;
 
 create or replace function cnd_delete_work(p_session text, p_id text) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
   delete from cnd_works where id = p_id and (author = s.nickname or s.role in ('editor','admin'));
@@ -343,7 +345,7 @@ create or replace function cnd_tpl_json(t cnd_templates) returns jsonb language 
 $$;
 
 create or replace function cnd_list_templates(p_session text) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform cnd_session(p_session);
   return coalesce((select jsonb_agg(cnd_tpl_json(t) order by t.official desc, t.uses desc, t.created_at desc)
@@ -351,7 +353,7 @@ begin
 end $$;
 
 create or replace function cnd_save_template(p_session text, p_tpl jsonb) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session); t cnd_templates;
 begin
   insert into cnd_templates (author, name, tags, kind, thumb, doc)
@@ -361,11 +363,11 @@ begin
 end $$;
 
 create or replace function cnd_use_template(p_session text, p_id uuid) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin perform cnd_session(p_session); update cnd_templates set uses = uses + 1 where id = p_id; end $$;
 
 create or replace function cnd_update_template(p_session text, p_id uuid, p_patch jsonb) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform cnd_manager(p_session);
   update cnd_templates set
@@ -375,7 +377,7 @@ begin
 end $$;
 
 create or replace function cnd_delete_template(p_session text, p_id uuid) returns void
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
   delete from cnd_templates where id = p_id and (author = s.nickname or s.role in ('editor','admin'));
@@ -383,7 +385,7 @@ end $$;
 
 -- ---------- экспорты ----------
 create or replace function cnd_log_export(p_session text, p_work_id text, p_title text, p_format text, p_watermark text)
-returns jsonb language plpgsql security definer set search_path = public as $$
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session); e cnd_exports;
 begin
   insert into cnd_exports (author, work_id, title, format, watermark)
@@ -392,7 +394,7 @@ begin
 end $$;
 
 create or replace function cnd_list_exports(p_session text) returns jsonb
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 begin
   perform cnd_manager(p_session);
   return coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'at', (extract(epoch from e.at) * 1000)::bigint,
