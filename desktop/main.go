@@ -4,6 +4,7 @@ package main
 import (
 	"embed"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"os/exec"
@@ -32,6 +33,9 @@ func open(url string) {
 }
 
 func main() {
+	for ext, t := range map[string]string{".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".ttf": "font/ttf", ".woff2": "font/woff2"} {
+		mime.AddExtensionType(ext, t)
+	}
 	url := "http://127.0.0.1:" + port + "/"
 	ln, err := net.Listen("tcp", "127.0.0.1:"+port)
 	if err != nil {
