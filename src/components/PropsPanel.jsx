@@ -1,6 +1,14 @@
-import { AlignCenterHorizontal, Bold, CaseSensitive, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, CopyPlus, Eye, EyeOff, Italic, Lock, Sparkles, Trash2, Underline, Unlock } from 'lucide-react';
+// Если крадёте, то крадите ради реально хороших людей
+import { useEffect, useState } from 'react';
+import {
+  AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical,
+  Bold, BookmarkPlus, CaseSensitive, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, CopyPlus, Eye, EyeOff, FlipHorizontal2,
+  FlipVertical2, Italic, Lock, RotateCcw, Sparkles, Trash2, Underline, Unlock, Wand2,
+} from 'lucide-react';
 import { BRAND_COLORS } from '../lib/brand.js';
 import { useFonts } from '../lib/fonts.js';
+import { CHART_KINDS, FRAMES, TABLE_STYLES } from '../lib/elements.js';
+import { FX_DEFAULT, FX_PRESETS } from '../lib/pathscale.js';
 
 function Color({ label, value, onChange }) {
   return (
@@ -18,7 +26,227 @@ function Color({ label, value, onChange }) {
 }
 
 const num = (v) => Math.round(Number(v) * 10) / 10;
-const TYPE_NAMES = { text: 'Текст', rect: 'Фигура', ellipse: 'Круг', line: 'Линия', image: 'Картинка', placeholder: 'Рамка для фото' };
+const TYPE_NAMES = { text: 'Текст', rect: 'Прямоугольник', ellipse: 'Круг', line: 'Линия', image: 'Картинка', placeholder: 'Рамка для фото', shape: 'Фигура', chart: 'Диаграмма', table: 'Таблица' };
+
+const BLENDS = [
+  ['', 'Обычное'], ['multiply', 'Умножение'], ['screen', 'Экран'], ['overlay', 'Перекрытие'], ['darken', 'Затемнение'],
+  ['lighten', 'Осветление'], ['color-dodge', 'Осветление основы'], ['color-burn', 'Затемнение основы'], ['soft-light', 'Мягкий свет'],
+  ['hard-light', 'Жёсткий свет'], ['difference', 'Разница'], ['hue', 'Цветовой тон'], ['saturation', 'Насыщенность'], ['color', 'Цветность'], ['luminosity', 'Яркость'],
+];
+
+function Slider({ label, value, min, max, step = 1, onChange, unit = '' }) {
+  return (
+    <>
+      <label>{label}: {value}{unit}</label>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </>
+  );
+}
+
+function Section({ title, children, open: initial = false }) {
+  const [open, setOpen] = useState(initial);
+  return (
+    <div className={`psec ${open ? 'open' : ''}`}>
+      <button className="psec-head" onClick={() => setOpen((o) => !o)}>{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {title}</button>
+      {open && <div className="psec-body">{children}</div>}
+    </div>
+  );
+}
+
+function toHex(c) {
+  if (!c) return '#000000';
+  if (c.startsWith('#')) return c.length === 4 ? `#${c[1]}${c[1]}${c[2]}${c[2]}${c[3]}${c[3]}` : c.slice(0, 7);
+  const m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  return m ? `#${[m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, '0')).join('')}` : '#000000';
+}
+function hexToClear(c) {
+  const h = toHex(c); return `rgba(${parseInt(h.slice(1, 3), 16)},${parseInt(h.slice(3, 5), 16)},${parseInt(h.slice(5, 7), 16)},0)`;
+}
+const isClear = (c) => /rgba\(.*,\s*0\)$/.test(c || '');
+
+function GradientBox({ el, set }) {
+  const g = el.gradient;
+  return (
+    <>
+      <label className="row" style={{ gap: 8 }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={!!g} onChange={(e) => set({ gradient: e.target.checked ? { type: 'linear', from: toHex(el.fill || '#0B7CFC'), to: '#03316F', angle: 90 } : undefined })} />
+        Градиент
+      </label>
+      {g && (
+        <>
+          <div className="seg">
+            <button className={g.type !== 'radial' ? 'on' : ''} onClick={() => set({ gradient: { ...g, type: 'linear' } })}>Линейный</button>
+            <button className={g.type === 'radial' ? 'on' : ''} onClick={() => set({ gradient: { ...g, type: 'radial' } })}>Круговой</button>
+          </div>
+          <div className="two">
+            <div><label>Цвет 1</label><input type="color" value={toHex(g.from)} onChange={(e) => set({ gradient: { ...g, from: e.target.value } })} /></div>
+            <div><label>Цвет 2</label><input type="color" value={toHex(g.to)} onChange={(e) => set({ gradient: { ...g, to: isClear(g.to) ? hexToClear(e.target.value) : e.target.value } })} /></div>
+          </div>
+          <label className="row" style={{ gap: 8 }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={isClear(g.to)} onChange={(e) => set({ gradient: { ...g, to: e.target.checked ? hexToClear(g.to) : toHex(g.to) } })} />
+            Второй цвет прозрачный
+          </label>
+          {g.type !== 'radial' && <Slider label="Угол" value={g.angle || 0} min={0} max={360} step={5} unit="°" onChange={(v) => set({ gradient: { ...g, angle: v } })} />}
+        </>
+      )}
+    </>
+  );
+}
+
+function EffectsBox({ el, set }) {
+  const sh = el.shadow === true ? { color: '#000000', blur: 12, x: 0, y: 0, opacity: 0.6 } : el.shadow;
+  const put = (p) => set({ shadow: { ...sh, ...p } });
+  return (
+    <Section title="Эффекты: тень и наложение">
+      <label className="row" style={{ gap: 8 }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={!!sh} onChange={(e) => set({ shadow: e.target.checked ? { color: '#000000', blur: 16, x: 0, y: 6, opacity: 0.45 } : undefined })} />
+        Тень
+      </label>
+      {sh && (
+        <>
+          <div className="row"><input type="color" value={toHex(sh.color)} onChange={(e) => put({ color: e.target.value })} style={{ width: 52 }} />
+            <div className="seg grow">
+              <button onClick={() => put({ blur: 4, x: 3, y: 3, opacity: 0.9 })}>Жёсткая</button>
+              <button onClick={() => put({ blur: 18, x: 0, y: 8, opacity: 0.45 })}>Мягкая</button>
+              <button onClick={() => put({ blur: 30, x: 0, y: 0, opacity: 0.9, color: '#FFD54A' })}>Свечение</button>
+            </div>
+          </div>
+          <Slider label="Размытие" value={sh.blur ?? 12} min={0} max={80} onChange={(v) => put({ blur: v })} />
+          <div className="two">
+            <div><Slider label="Сдвиг X" value={sh.x || 0} min={-60} max={60} onChange={(v) => put({ x: v })} /></div>
+            <div><Slider label="Сдвиг Y" value={sh.y || 0} min={-60} max={60} onChange={(v) => put({ y: v })} /></div>
+          </div>
+          <Slider label="Плотность" value={Math.round((sh.opacity ?? 0.6) * 100)} min={0} max={100} unit="%" onChange={(v) => put({ opacity: v / 100 })} />
+        </>
+      )}
+      <label>Режим наложения</label>
+      <select value={el.blend || ''} onChange={(e) => set({ blend: e.target.value || undefined })}>
+        {BLENDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </Section>
+  );
+}
+
+function FiltersBox({ el, set }) {
+  const fx = { ...FX_DEFAULT, ...(el.fx || {}) };
+  const put = (p) => set({ fx: { ...(el.fx || {}), ...p } });
+  return (
+    <Section title="Фильтры и коррекция" open>
+      <div className="fx-presets">
+        {FX_PRESETS.map((p) => <button key={p.id} className="small" onClick={() => set({ fx: p.id === 'none' ? undefined : { ...p.fx } })}>{p.name}</button>)}
+      </div>
+      <Slider label="Яркость" value={fx.brightness} min={0} max={200} unit="%" onChange={(v) => put({ brightness: v })} />
+      <Slider label="Контраст" value={fx.contrast} min={0} max={200} unit="%" onChange={(v) => put({ contrast: v })} />
+      <Slider label="Насыщенность" value={fx.saturate} min={0} max={300} unit="%" onChange={(v) => put({ saturate: v })} />
+      <Slider label="Оттенок" value={fx.hue} min={-180} max={180} unit="°" onChange={(v) => put({ hue: v })} />
+      <Slider label="Размытие" value={fx.blur} min={0} max={20} step={0.5} unit=" px" onChange={(v) => put({ blur: v })} />
+      <Slider label="Ч/Б" value={fx.grayscale} min={0} max={100} unit="%" onChange={(v) => put({ grayscale: v })} />
+      <Slider label="Сепия" value={fx.sepia} min={0} max={100} unit="%" onChange={(v) => put({ sepia: v })} />
+      <Slider label="Негатив" value={fx.invert} min={0} max={100} unit="%" onChange={(v) => put({ invert: v })} />
+      {el.fx && <button className="small" style={{ marginTop: 8 }} onClick={() => set({ fx: undefined })}><RotateCcw size={14} /> Сбросить фильтры</button>}
+    </Section>
+  );
+}
+
+function parseChart(t) {
+  return t.split('\n').map((ln) => {
+    const m = ln.match(/^(.*?)[:;=\t]\s*(-?[\d.,]+)\s*%?\s*$/);
+    return m ? { label: m[1].trim(), value: Number(m[2].replace(',', '.')) } : null;
+  }).filter(Boolean);
+}
+
+function ChartBox({ el, set }) {
+  const [text, setText] = useState('');
+  useEffect(() => { setText((el.data || []).map((d) => `${d.label}: ${d.value}`).join('\n')); }, [el.id]);
+  const apply = (t) => { setText(t); const data = parseChart(t); if (data.length) set({ data }); };
+  const n = Math.max(1, Math.min(8, (el.data || []).length));
+  return (
+    <>
+      <label>Вид</label>
+      <select value={el.kind} onChange={(e) => set({ kind: e.target.value })}>
+        {Object.entries(CHART_KINDS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+      </select>
+      <label>Данные: «подпись: число», по строке на значение</label>
+      <textarea rows={6} value={text} onChange={(e) => apply(e.target.value)} />
+      <label>Цвета</label>
+      <div className="row wrap">
+        {(el.colors || []).slice(0, n).map((c, i) => (
+          <input key={i} type="color" value={c} style={{ width: 38 }} onChange={(e) => { const colors = [...el.colors]; colors[i] = e.target.value; set({ colors }); }} />
+        ))}
+      </div>
+      <div className="two">
+        <div><label>Текст</label><input type="color" value={el.textColor || '#111111'} onChange={(e) => set({ textColor: e.target.value })} /></div>
+        <div><label>Размер текста</label><input type="number" value={el.fontSize || 22} onChange={(e) => set({ fontSize: Number(e.target.value) })} /></div>
+      </div>
+      <label className="row" style={{ gap: 8 }}><input type="checkbox" style={{ width: 'auto' }} checked={!!el.showValues} onChange={(e) => set({ showValues: e.target.checked })} /> Показывать числа</label>
+      <label className="row" style={{ gap: 8 }}><input type="checkbox" style={{ width: 'auto' }} checked={!!el.showLabels} onChange={(e) => set({ showLabels: e.target.checked })} /> Показывать подписи</label>
+      <label className="row" style={{ gap: 8 }}><input type="checkbox" style={{ width: 'auto' }} checked={!!el.background} onChange={(e) => set({ background: e.target.checked ? '#FFFFFF' : undefined })} /> Подложка</label>
+      {el.background && <input type="color" value={el.background} onChange={(e) => set({ background: e.target.value })} style={{ width: 52 }} />}
+    </>
+  );
+}
+
+function TableBox({ el, set }) {
+  const rows = el.cells || [[]]; const cols = Math.max(1, ...rows.map((r) => r.length));
+  const [text, setText] = useState('');
+  useEffect(() => { setText(rows.map((r) => r.join(' | ')).join('\n')); }, [el.id, rows.length, cols]);
+  const apply = (t) => { setText(t); set({ cells: t.split('\n').map((r) => r.split(/\s*[|\t]\s*/)) }); };
+  const resize = (dr, dc) => {
+    let next = rows.map((r) => [...r]);
+    if (dr > 0) next.push(Array(cols).fill(''));
+    if (dr < 0 && next.length > 1) next.pop();
+    if (dc > 0) next = next.map((r) => [...r, '']);
+    if (dc < 0 && cols > 1) next = next.map((r) => r.slice(0, cols - 1));
+    set({ cells: next, height: (el.height / rows.length) * next.length });
+  };
+  return (
+    <>
+      <label>Ячейки: строка на ряд, столбцы через «|»</label>
+      <textarea rows={6} value={text} onChange={(e) => apply(e.target.value)} style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
+      <div className="row wrap">
+        <button className="small" onClick={() => resize(1, 0)}>+ ряд</button><button className="small" onClick={() => resize(-1, 0)}>− ряд</button>
+        <button className="small" onClick={() => resize(0, 1)}>+ столбец</button><button className="small" onClick={() => resize(0, -1)}>− столбец</button>
+      </div>
+      <label>Стиль</label>
+      <select value={el.style || ''} onChange={(e) => { const st = TABLE_STYLES[e.target.value]; if (st) { const { label: _l, ...colors } = st; set({ style: e.target.value, ...colors }); } }}>
+        {Object.entries(TABLE_STYLES).map(([k, st]) => <option key={k} value={k}>{st.label}</option>)}
+      </select>
+      <div className="two">
+        <div><label>Шапка</label><input type="color" value={el.head} onChange={(e) => set({ head: e.target.value })} /></div>
+        <div><label>Линии</label><input type="color" value={el.line} onChange={(e) => set({ line: e.target.value })} /></div>
+        <div><label>Ряды</label><input type="color" value={el.row} onChange={(e) => set({ row: e.target.value })} /></div>
+        <div><label>Через ряд</label><input type="color" value={el.alt} onChange={(e) => set({ alt: e.target.value })} /></div>
+        <div><label>Текст</label><input type="color" value={el.text} onChange={(e) => set({ text: e.target.value })} /></div>
+        <div><label>Размер текста</label><input type="number" value={el.fontSize || 24} onChange={(e) => set({ fontSize: Number(e.target.value) })} /></div>
+      </div>
+      <label className="row" style={{ gap: 8 }}><input type="checkbox" style={{ width: 'auto' }} checked={!!el.header} onChange={(e) => set({ header: e.target.checked })} /> Первый ряд — шапка</label>
+    </>
+  );
+}
+
+function FrameStroke({ el, set }) {
+  return (
+    <>
+      <label className="row" style={{ gap: 8 }}>
+        <input type="checkbox" style={{ width: 'auto' }} checked={!!el.frameStroke} onChange={(e) => set({ frameStroke: e.target.checked ? '#F2C98A' : undefined, frameStrokeWidth: el.frameStrokeWidth || 6 })} />
+        Обводка рамки по форме
+      </label>
+      {el.frameStroke && (
+        <div className="row"><input type="color" value={toHex(el.frameStroke)} onChange={(e) => set({ frameStroke: e.target.value })} style={{ width: 52 }} />
+          <input type="range" min="1" max="30" value={el.frameStrokeWidth || 6} onChange={(e) => set({ frameStrokeWidth: Number(e.target.value) })} /></div>
+      )}
+    </>
+  );
+}
+
+function FlipRow({ el, set }) {
+  return (
+    <div className="row" style={{ marginTop: 8 }}>
+      <button className={`small ${el.flipX ? 'primary' : ''}`} title="Отразить по горизонтали" onClick={() => set({ flipX: !el.flipX })}><FlipHorizontal2 size={15} /> Отразить</button>
+      <button className={`small ${el.flipY ? 'primary' : ''}`} title="Отразить по вертикали" onClick={() => set({ flipY: !el.flipY })}><FlipVertical2 size={15} /></button>
+    </div>
+  );
+}
 
 export function elName(e) {
   if (e.name) return e.name;
@@ -50,6 +278,7 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
       {el && (
         <>
           <div className="row"><h3 className="grow" style={{ margin: 0 }}>{TYPE_NAMES[el.type]}</h3>
+            <button className="small" title="Сохранить в «Элементы редакции»" onClick={actions.saveAsElement}><BookmarkPlus size={15} /></button>
             <button className="small" title="Дублировать (Ctrl+D)" onClick={actions.duplicate}><CopyPlus size={15} /></button>
             <button className="small danger" title="Удалить (Delete)" onClick={actions.remove}><Trash2 size={15} /></button>
           </div>
@@ -80,11 +309,25 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
               <label>Межбуквенный: {el.letterSpacing || 0}</label>
               <input type="range" min="-5" max="30" value={el.letterSpacing || 0} onChange={(e) => set({ letterSpacing: Number(e.target.value) })} />
               <Color label="Цвет текста" value={el.fill} onChange={(v) => set({ fill: v })} />
+              <label className="row" style={{ gap: 8 }}>
+                <input type="checkbox" style={{ width: 'auto' }} checked={!!el.textStroke} onChange={(e) => set({ textStroke: e.target.checked ? '#000000' : undefined, textStrokeWidth: 3 })} /> Обводка букв
+              </label>
+              {el.textStroke && (
+                <div className="row"><input type="color" value={el.textStroke} onChange={(e) => set({ textStroke: e.target.value })} style={{ width: 52 }} />
+                  <input type="range" min="1" max="20" value={el.textStrokeWidth || 3} onChange={(e) => set({ textStrokeWidth: Number(e.target.value) })} /></div>
+              )}
             </>
           )}
           {['rect', 'ellipse', 'placeholder'].includes(el.type) && (
             <>
               <Color label="Заливка" value={el.fill} onChange={(v) => set({ fill: v })} />
+              {el.type !== 'placeholder' && <GradientBox el={el} set={set} />}
+              {el.type === 'placeholder' && (<><label>Форма рамки</label>
+                <select value={el.clipPath ? '__own' : el.mask || ''} onChange={(e) => e.target.value !== '__own' && set({ mask: e.target.value || undefined, clipPath: undefined, clipVb: undefined })}>
+                  {el.clipPath && <option value="__own">Своя форма</option>}
+                  {FRAMES.map((f) => <option key={f.id} value={f.mask}>{f.name}</option>)}
+                </select>
+                <FrameStroke el={el} set={set} /></>)}
               {el.type !== 'ellipse' && (<><label>Скругление</label><input type="number" value={el.cornerRadius || 0} onChange={(e) => set({ cornerRadius: Number(e.target.value) })} /></>)}
               {el.type !== 'placeholder' && (<div className="two">
                 <div><label>Обводка</label><input type="color" value={el.stroke || '#000000'} onChange={(e) => set({ stroke: e.target.value })} /></div>
@@ -101,10 +344,61 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
               <label className="row"><input type="checkbox" style={{ width: 'auto' }} checked={!!el.dash} onChange={(e) => set({ dash: e.target.checked })} /> Пунктир</label>
             </>
           )}
+          {el.type === 'shape' && (
+            <>
+              <Color label={el.outline ? 'Цвет линии' : 'Заливка'} value={el.fill} onChange={(v) => set({ fill: v })} />
+              {el.outline
+                ? <Slider label="Толщина линии" value={el.strokeWidth || 4} min={1} max={40} onChange={(v) => set({ strokeWidth: v })} />
+                : (<>
+                  <GradientBox el={el} set={set} />
+                  <div className="two">
+                    <div><label>Обводка</label><input type="color" value={el.stroke || '#000000'} onChange={(e) => set({ stroke: e.target.value })} /></div>
+                    <div><label>Толщина</label><input type="number" value={el.strokeWidth || 0} onChange={(e) => set({ strokeWidth: Number(e.target.value) })} /></div>
+                  </div>
+                </>)}
+              <FlipRow el={el} set={set} />
+              <label className="row" style={{ gap: 8 }}><input type="checkbox" style={{ width: 'auto' }} checked={!!el.keepRatio} onChange={(e) => set({ keepRatio: e.target.checked })} /> Сохранять пропорции</label>
+              {!el.outline && (
+                <div className="row wrap" style={{ marginTop: 8 }}>
+                  <button className="primary small" onClick={actions.pickPhotoForPlaceholder}>Вставить фото в фигуру</button>
+                  <button className="small" onClick={actions.toFrame}>Сделать рамкой</button>
+                </div>
+              )}
+            </>
+          )}
+          {el.type === 'chart' && <ChartBox el={el} set={set} />}
+          {el.type === 'table' && <TableBox el={el} set={set} />}
+          {el.type === 'image' && (
+            <>
+              <FlipRow el={el} set={set} />
+              <label>Обрезать по форме</label>
+              <select value={el.clipPath ? '__own' : el.mask || ''} onChange={(e) => e.target.value !== '__own' && set({ mask: e.target.value || undefined, clipPath: undefined, clipVb: undefined })}>
+                {el.clipPath && <option value="__own">Своя форма</option>}
+                {FRAMES.map((f) => <option key={f.id} value={f.mask}>{f.name}</option>)}
+              </select>
+              <FrameStroke el={el} set={set} />
+              {(el.mask || el.clipPath) && (
+                <div className="row wrap" style={{ marginTop: 8 }}>
+                  <button className="small" onClick={actions.pickPhotoForPlaceholder}>Заменить фото</button>
+                  <button className="small" onClick={actions.toFrame}>Убрать фото, оставить рамку</button>
+                </div>
+              )}
+
+              {!el.mask && <Slider label="Скругление углов" value={el.cornerRadius || 0} min={0} max={Math.round(Math.min(el.width, el.height) / 2)} onChange={(v) => set({ cornerRadius: v })} />}
+              <div className="two">
+                <div><label>Рамка</label><input type="color" value={el.stroke || '#ffffff'} onChange={(e) => set({ stroke: e.target.value, strokeWidth: el.strokeWidth || 8 })} /></div>
+                <div><label>Толщина</label><input type="number" value={el.strokeWidth || 0} onChange={(e) => set({ strokeWidth: Number(e.target.value), stroke: el.stroke || '#ffffff' })} /></div>
+              </div>
+              <FiltersBox el={el} set={set} />
+            </>
+          )}
           {el.type === 'image' && (
             <div className="row wrap" style={{ marginTop: 8 }}>
               <button onClick={actions.fitImage}>Растянуть на холст</button>
               <button onClick={actions.resetRatio}>Исходные пропорции</button>
+              <button onClick={() => actions.imageTool('bg')}><Wand2 size={15} /> Убрать фон</button>
+              <button onClick={() => actions.imageTool('upscale')}><Sparkles size={15} /> Улучшить качество</button>
+              {el.origSrc && <button onClick={actions.restoreImage}><RotateCcw size={15} /> Вернуть оригинал</button>}
             </div>
           )}
           <div className="two">
@@ -114,6 +408,16 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
             {!['text', 'line'].includes(el.type) && <div><label>Высота</label><input type="number" value={num(el.height)} onChange={(e) => set({ height: Number(e.target.value) })} /></div>}
             <div><label>Поворот</label><input type="number" value={num(el.rotation || 0)} onChange={(e) => set({ rotation: Number(e.target.value) })} /></div>
           </div>
+          {el.type !== 'placeholder' && <EffectsBox el={el} set={set} />}
+          <label>Выровнять на листе</label>
+          <div className="row wrap align-row">
+            <button className="small" title="По левому краю" onClick={() => actions.align('left')}><AlignStartVertical size={15} /></button>
+            <button className="small" title="По центру по горизонтали" onClick={() => actions.align('hcenter')}><AlignCenterVertical size={15} /></button>
+            <button className="small" title="По правому краю" onClick={() => actions.align('right')}><AlignEndVertical size={15} /></button>
+            <button className="small" title="По верху" onClick={() => actions.align('top')}><AlignStartHorizontal size={15} /></button>
+            <button className="small" title="По центру по вертикали" onClick={() => actions.align('vcenter')}><AlignCenterHorizontal size={15} /></button>
+            <button className="small" title="По низу" onClick={() => actions.align('bottom')}><AlignEndHorizontal size={15} /></button>
+          </div>
           <label>Прозрачность: {Math.round((el.opacity ?? 1) * 100)}%</label>
           <input type="range" min="0" max="1" step="0.05" value={el.opacity ?? 1} onChange={(e) => set({ opacity: Number(e.target.value) })} />
           <div className="row wrap" style={{ marginTop: 10 }}>
@@ -121,7 +425,8 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
             <button className="small" title="Выше на слой" onClick={() => actions.order('up')}><ChevronUp size={15} /></button>
             <button className="small" title="Ниже на слой" onClick={() => actions.order('down')}><ChevronDown size={15} /></button>
             <button className="small" title="На задний план" onClick={() => actions.order('bottom')}><ChevronsDown size={15} /></button>
-            <button className="small" title="Выровнять по центру листа" onClick={() => actions.center()}><AlignCenterHorizontal size={15} /> По центру</button>
+            <button className="small" title="Выровнять по центру листа" onClick={() => actions.center()}><AlignCenterHorizontal size={15} /> В центр</button>
+
           </div>
         </>
       )}

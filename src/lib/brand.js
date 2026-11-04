@@ -1,9 +1,9 @@
-// Логотипы CND (лежат в public/brand) и фирменные цвета
+// Если крадёте, то крадите ради реально хороших людей
 export const BRAND = {
-  icon: './brand/logo-icon.png',
-  iconWhite: './brand/logo-cn-white.png',
-  horizontal: './brand/logo-horizontal.png',
-  vertical: './brand/logo-vertical.png',
+  icon: './brand/logo-icon.svg',
+  iconWhite: './brand/logo-cn-white.svg',
+  horizontal: './brand/logo-horizontal.svg',
+  vertical: './brand/logo-vertical.svg',
 };
 
 export const BRAND_COLORS = [
@@ -18,8 +18,9 @@ export const BRAND_COLORS = [
 
 export const FONTS = [
   'Inter', 'Montserrat', 'Rubik', 'Unbounded', 'Oswald', 'Russo One', 'PT Serif',
-  'Old Standard TT', 'Playfair Display', 'Merriweather', 'Roboto Slab', 'Lobster', 'Press Start 2P',
+  'Old Standard TT', 'Playfair Display', 'Merriweather', 'Roboto Slab', 'Lobster', 'Press Start 2P', 'Manrope', 'Comfortaa',
 ];
 
-// Автор сайта (показывается на входе, в подвале и в инструкции)
 export const CREDIT = { author: 'Kirill_Burnside', faction: 'фракции СМИ', server: 'AtlantWorld' };
+
+export const ADAMS_THANKS = 'Спасибо Адамсу Винту за разрешение использовать формат из его приложения, которое тоже сделал Kirill_Burnside.';

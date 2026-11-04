@@ -1,9 +1,10 @@
-// Инструкция по сайту и подсказки для редактора
+// Если крадёте, то крадите ради реально хороших людей
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BookOpen, X } from 'lucide-react';
 import { usePrefs } from '../lib/prefs.js';
-import { CREDIT } from '../lib/brand.js';
+import { ADAMS_THANKS, CREDIT } from '../lib/brand.js';
+import { canManage, isAdmin } from '../lib/util.js';
 
 export const TIPS = [
   'Двойной клик по тексту — редактировать. Ctrl+Enter или Esc — закончить.',
@@ -16,58 +17,76 @@ export const TIPS = [
   'Розовые линии при перетаскивании показывают центр и края листа.',
   'Сохраните удачный дизайн кнопкой «В шаблоны», и коллеги найдут его поиском.',
   'Работа сохраняется сама через пару секунд после каждого изменения.',
+  'Перетащите фото на любую фигуру из «Элементов», и оно обрежется по её форме.',
 ];
 
 const SECTIONS = [
   {
-    key: 'start', title: 'Вход на сайт', body: (
+    key: 'start', who: 'all', title: 'Вход и токен', body: () => (
       <>
         <ol>
-          <li>Получите у редактора или админа <b>токен</b> вида <code>CND-XXXX-XXXX</code>. Он выдаётся на ваш ник и действует ограниченное время: часы или дни.</li>
-          <li>Введите токен и игровой никнейм точно как в токене, например <code>Имя_Фамилия</code>.</li>
-          <li>Приложите скриншот игрового удостоверения CND: перетащите файл, нажмите на поле или вставьте через <kbd>Ctrl</kbd>+<kbd>V</kbd>. Админу удостоверение не нужно.</li>
-          <li>В шапке сайта идёт таймер до окончания токена. Когда он дойдёт до нуля, войдите снова с новым токеном.</li>
+          <li>Токен вида <code>CND-XXXX-XXXX</code> выдаёт редактор или админ. Он привязан к вашему нику и действует ограниченное время: часы или дни.</li>
+          <li>При входе введите токен, игровой ник точно как в токене (например <code>Имя_Фамилия</code>) и приложите скриншот игрового удостоверения CND.</li>
+          <li>Галочка <b>«Запомнить меня»</b> сохраняет токен, ник и скриншот на этом устройстве. Пока токен действует, сайт сам входит после перезагрузки.</li>
+          <li>В шапке идёт таймер до конца токена. Когда он дойдёт до нуля, попросите новый токен и войдите снова.</li>
         </ol>
         <p className="muted small">Загружайте только игровое удостоверение из Minecraft, не настоящие документы.</p>
       </>
     ),
   },
   {
-    key: 'editor', title: 'Как сделать работу', body: (
+    key: 'editor', who: 'all', title: 'Как сделать работу', body: () => (
       <ol>
         <li>На главной выберите <b>размер</b> (газетная полоса, пост, сторис) или <b>шаблон</b>.</li>
         <li>Слева вкладки: <b>Шаблоны</b>, <b>Текст</b>, <b>Фото</b>, <b>Элементы</b>, <b>Персонажи</b>, <b>Бренд</b>. Нажмите на нужное, и оно появится на листе.</li>
         <li>Справа настройки выделенного: шрифт, размер, цвет, выравнивание, прозрачность. Ниже список слоёв: глаз скрывает слой, замок закрепляет.</li>
         <li>Текст правится <b>двойным кликом</b>. Фото кладётся в серую рамку: перетащите файл прямо на неё.</li>
-        <li>Работа сохраняется сама. Найти её можно на главной в разделе «Мои работы».</li>
+        <li>Работа сохраняется сама. Найти её можно на главной в разделе «Мои работы». Если открыть шаблон и ничего не менять, он туда не попадёт.</li>
+        <li>Удалённая работа 30 дней лежит в <b>Корзине</b> внизу «Моих работ». Оттуда её можно вернуть.</li>
         <li>Готово? Нажмите <b>Скачать</b> или <b>Копировать</b> и опубликуйте работу в нужном канале Discord.</li>
       </ol>
     ),
   },
   {
-    key: 'chars', title: 'Персонажи и предметы', body: (
-      <>
-        <div className="help-figure">
-          <img src="./help/reporter-mic.png" alt="3D-персонаж с микрофоном" />
-          <div>
-            <b>Персонаж с предметом в руке</b>
-            <p className="small" style={{ margin: '4px 0 0' }}>Как в SkinPreview Maker: выберите позу, предмет и свет, покрутите мышью и вставьте на лист с прозрачным фоном.</p>
-          </div>
-        </div>
-        <ol>
-          <li>Откройте вкладку <b>Персонажи</b>. Найдите скин по нику или загрузите файл скина PNG 64×64. Для пробы есть пример «Репортёр CND».</li>
-          <li><b>Голова 2D</b> и <b>Персонаж 2D</b> дают плоскую картинку спереди.</li>
-          <li><b>Голова 3D</b> — объёмная голова: поверните её мышью и выберите свет.</li>
-          <li><b>Персонаж 3D</b>: выберите <b>позу</b> (с микрофоном, машет, указывает, сидит и другие), затем <b>предмет в руке</b>: микрофон, фотокамеру, блокнот, газету, телефон, кофе, меч, кирку или флаг CND. Предмет можно переложить в другую руку.</li>
-          <li>Свой предмет: выберите «Свой предмет» и загрузите картинку 16×16, например текстуру предмета из Minecraft. Каждый пиксель станет блоком.</li>
-          <li>Свет: Blockbench (ровный), студия, контровой, закат, неон, нуар. Ползунки в «Тонкой настройке» двигают голову, руки и ноги.</li>
-          <li>Нажмите <b>Вставить на холст</b>.</li>
-        </ol>
-      </>
+    key: 'photo', who: 'all', title: 'Фото: фон и качество', body: () => (
+      <ul>
+        <li>Выделите фото на листе. Справа появятся кнопки <b>Убрать фон</b> и <b>Улучшить качество</b>.</li>
+        <li><b>Убрать фон</b>: сайт сам найдёт фон по краям скриншота. Ползунок «Точность» убирает больше или меньше, «Края» делает границу мягче. Можно нажать «Пипетка» и кликнуть по цвету, который нужно убрать.</li>
+        <li><b>Улучшить качество</b> увеличивает картинку в 2 или 4 раза. Для скинов и пиксельных скриншотов берите «Пиксели», для обычных фото «Фото + резкость».</li>
+        <li>Кнопка «Вернуть оригинал» отменяет обработку.</li>
+        <li><b>Фильтры и коррекция</b>: готовые фильтры (Ч/Б, Сепия, Винтаж, Нуар…) и ползунки яркости, контраста, насыщенности, оттенка и размытия.</li>
+        <li><b>Обрезать по форме</b>: круг, сердце, звезда, арка и другие. Там же обводка рамки и кнопка «Убрать фото, оставить рамку».</li>
+      </ul>
     ),
   },
   {
-    key: 'fonts', title: 'Свои шрифты', body: (
+    key: 'elements', who: 'all', title: 'Элементы, диаграммы, рамки', body: () => (
+      <ul>
+        <li>Во вкладке <b>Элементы</b> есть поиск, недавние и категории: фигуры, стрелки, реплики, иконки, рамки для фото, градиенты, диаграммы, таблицы и персонажи CND.</li>
+        <li><b>Фото в любую фигуру</b>: выделите фигуру и нажмите «Вставить фото в фигуру» или просто перетащите снимок на неё.</li>
+        <li><b>Диаграмма</b>: справа впишите строки вида «Подпись: число». Вид меняется в списке: столбцы, полосы, линия, круговая, кольцевая, прогресс.</li>
+        <li><b>Таблица</b>: ряды с новой строки, столбцы через «|». Кнопки добавляют ряды и столбцы.</li>
+        <li><b>Импорт</b>: SVG или PNG попадёт в «Элементы редакции» для всех. Одноцветный SVG станет фигурой, у которой меняется цвет. Кнопка с закладкой справа сохраняет туда выделенный элемент.</li>
+        <li><b>Создать фигуру</b>: своя звезда или многоугольник, её тоже можно сделать рамкой для фото.</li>
+        <li>Справа у любого элемента: тень, свечение, режим наложения, градиент, отражение и выравнивание по листу.</li>
+      </ul>
+    ),
+  },
+
+  {
+    key: 'chars', who: 'all', title: 'Персонажи и предметы', body: () => (
+      <ol>
+        <li>Откройте вкладку <b>Персонажи</b>. Найдите скин по нику или загрузите файл скина PNG 64×64. Для пробы есть пример «Репортёр CND».</li>
+        <li><b>Голова 2D</b> и <b>Персонаж 2D</b> дают плоскую картинку спереди. <b>Голова 3D</b> — объёмная голова, её можно повернуть мышью.</li>
+        <li><b>Персонаж 3D</b>: выберите позу и свет, покрутите персонажа мышью.</li>
+        <li><b>Предмет</b>: по умолчанию в руке микрофон CND. Можно взять другой или загрузить свой: модель <b>.bbmodel</b> из Blockbench или картинку предмета из Minecraft (PNG 16×16).</li>
+        <li><b>Где предмет</b>: в правой руке, в левой руке или на голове. Ползунки «Положение предмета» сдвигают, поворачивают и меняют размер.</li>
+        <li>Нажмите <b>Вставить на холст</b>. Фон у персонажа прозрачный.</li>
+      </ol>
+    ),
+  },
+  {
+    key: 'fonts', who: 'all', title: 'Свои шрифты', body: () => (
       <ol>
         <li>Откройте вкладку <b>Бренд</b> и нажмите «Импорт шрифта».</li>
         <li>Выберите файл <b>TTF, OTF, WOFF или WOFF2</b> до 3 МБ.</li>
@@ -77,27 +96,27 @@ const SECTIONS = [
     ),
   },
   {
-    key: 'export', title: 'Скачивание и Discord', body: (
+    key: 'export', who: 'all', title: 'Скачивание', body: (role) => (
       <ul>
         <li><b>Скачать</b>: PNG для лучшего качества, JPG для лёгкого файла, WEBP. Размер 1× или 2×.</li>
         <li><b>Копировать</b> (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd>) кладёт картинку в буфер. Вставьте её в Discord через <kbd>Ctrl</kbd>+<kbd>V</kbd>, скачивать не нужно.</li>
-        <li>У редакторов в меню «Скачать» есть <b>отправка в Discord</b>: выберите канал, допишите текст и отправьте.</li>
+        {canManage(role) && <li>У вас в меню «Скачать» есть <b>отправка в Discord</b>: выберите канал, допишите текст и отправьте.</li>}
         <li>На каждую картинку ставится водяной знак CND. Его вид можно выбрать в меню скачивания, если админ разрешил. Убрать знак нельзя.</li>
       </ul>
     ),
   },
   {
-    key: 'archive', title: 'Лента архива', body: (
+    key: 'archive', who: 'all', title: 'Лента архива', body: () => (
       <ul>
         <li><b>Архив</b> — общая лента готовых работ всей редакции. Открывается кнопкой «Архив» на главной.</li>
-        <li>Работа попадает в архив сама, когда вы её скачиваете, копируете или отправляете в Discord. Галочку можно снять в меню «Скачать» или выключить в «Моих настройках».</li>
+        <li>Работа попадает в архив сама, когда вы её скачиваете или копируете. Галочку можно снять в меню «Скачать» или выключить в «Моих настройках».</li>
         <li>Нажмите на карточку, чтобы открыть картинку целиком, скачать или скопировать её.</li>
         <li>Удалить из архива может автор работы, редактор или админ.</li>
       </ul>
     ),
   },
   {
-    key: 'settings', title: 'Мои настройки', body: (
+    key: 'settings', who: 'all', title: 'Мои настройки', body: () => (
       <ul>
         <li>Кнопка с шестерёнкой в шапке открывает <b>Мои настройки</b>.</li>
         <li>Там выбирается тема: светлая, тёмная или как в системе.</li>
@@ -107,18 +126,29 @@ const SECTIONS = [
     ),
   },
   {
-    key: 'admin', title: 'Админка', body: (
+    key: 'manage', who: 'manage', title: 'Админка: токены и работы', body: (role) => (
       <ul>
         <li><b>Токены</b>: выдайте токен на ник или групповой токен на собрание. Срок задаётся в часах или днях, есть быстрые кнопки и продление. Код показывается один раз.</li>
+        {!isAdmin(role) && <li>Редактор выдаёт токены стажёрам и журналистам. Токены редакторов выдаёт админ.</li>}
         <li><b>Журнал входов</b>: кто и когда вошёл, фото удостоверения, отметка, если один токен вводили с разными никами.</li>
         <li><b>Работы сотрудников</b>: все работы фракции, любую можно открыть.</li>
         <li><b>Экспорты</b>: кто что скачал. «Чья это работа?» читает скрытую метку автора из PNG.</li>
-        <li><b>Настройки</b> (только админ): вход, водяной знак, каналы Discord, должности.</li>
       </ul>
     ),
   },
   {
-    key: 'keys', title: 'Горячие клавиши', body: (
+    key: 'admin', who: 'admin', title: 'Админ: настройки сайта', body: () => (
+      <ul>
+        <li><b>Вход</b>: нужно ли удостоверение, сколько живёт токен по умолчанию.</li>
+        <li><b>Водяной знак</b>: стиль по умолчанию и можно ли сотрудникам его менять.</li>
+        <li><b>Discord</b>: добавьте каналы (название + ссылка вебхука: настройки канала → Интеграции → Вебхуки). Редакторы будут выбирать канал в меню «Скачать». Отдельно выбирается канал для служебных уведомлений о входах и токенах.</li>
+        <li><b>Должности</b>: какая должность из удостоверения даёт какую роль.</li>
+        <li>Если потеряли доступ: в Supabase → SQL Editor выполните <code>select cnd_bootstrap_admin('Ваш_Ник');</code>, это выдаст новый админ-токен.</li>
+      </ul>
+    ),
+  },
+  {
+    key: 'keys', who: 'all', title: 'Горячие клавиши', body: () => (
       <div className="keys">
         <span><kbd>Ctrl</kbd>+<kbd>Z</kbd></span><span>Отменить</span>
         <span><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></span><span>Повторить</span>
@@ -135,18 +165,22 @@ const SECTIONS = [
   },
 ];
 
+const allowed = (who, role) => who === 'all' || (who === 'manage' && canManage(role)) || (who === 'admin' && isAdmin(role));
+
 export function Credit({ className = 'credit' }) {
   return (
     <div className={className}>
       Сайт сделан для {CREDIT.faction} сервера <b>{CREDIT.server}</b> · автор <b>{CREDIT.author}</b>
+      <span className="credit-thanks">{ADAMS_THANKS}</span>
     </div>
   );
 }
 
-export function HelpModal({ onClose, start = 'start' }) {
+export function HelpModal({ onClose, start = 'start', role }) {
+  const sections = SECTIONS.filter((s) => allowed(s.who, role));
   const [tab, setTab] = useState(start);
   const [prefs, setPrefs] = usePrefs();
-  const sec = SECTIONS.find((s) => s.key === tab) || SECTIONS[0];
+  const sec = sections.find((s) => s.key === tab) || sections[0];
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -154,32 +188,36 @@ export function HelpModal({ onClose, start = 'start' }) {
   }, [onClose]);
   return (
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 860 }} role="dialog" aria-label="Инструкция">
-        <div className="row" style={{ marginBottom: 14 }}>
-          <BookOpen size={22} color="var(--brand)" />
-          <h2 className="grow" style={{ margin: 0 }}>Инструкция CND Редактора</h2>
-          <button className="icon ghost" onClick={onClose} aria-label="Закрыть"><X size={18} /></button>
+      <div className="modal help-modal" role="dialog" aria-label="Инструкция">
+        <div className="help-main">
+          <div className="row" style={{ marginBottom: 14 }}>
+            <BookOpen size={22} color="var(--brand)" />
+            <h2 className="grow" style={{ margin: 0 }}>Инструкция CND Редактора</h2>
+            <button className="icon ghost" onClick={onClose} aria-label="Закрыть"><X size={18} /></button>
+          </div>
+          <div className="help">
+            <nav>{sections.map((s) => <button key={s.key} className={s.key === sec.key ? 'on' : ''} onClick={() => setTab(s.key)}>{s.title}</button>)}</nav>
+            <article><h3>{sec.title}</h3>{sec.body(role)}</article>
+          </div>
+          <div className="help-foot">
+            <label className="toggle">
+              <input type="checkbox" checked={prefs.autoHelp} onChange={(e) => setPrefs({ autoHelp: e.target.checked })} />
+              <span className="sw" aria-hidden="true" />
+              <span className="grow"><b>Открывать инструкцию после входа</b><span className="small muted">Можно поменять в «Моих настройках»</span></span>
+            </label>
+            <button className="primary" onClick={onClose}>Понятно</button>
+          </div>
+          <Credit />
         </div>
-        <div className="help">
-          <nav>{SECTIONS.map((s) => <button key={s.key} className={s.key === tab ? 'on' : ''} onClick={() => setTab(s.key)}>{s.title}</button>)}</nav>
-          <article><h3>{sec.title}</h3>{sec.body}</article>
-        </div>
-        <div className="help-foot">
-          <label className="toggle">
-            <input type="checkbox" checked={prefs.autoHelp} onChange={(e) => setPrefs({ autoHelp: e.target.checked })} />
-            <span className="sw" aria-hidden="true" />
-            <span className="grow"><b>Открывать инструкцию после входа</b><span className="small muted">Можно поменять в «Моих настройках»</span></span>
-          </label>
-          <button className="primary" onClick={onClose}>Понятно</button>
-        </div>
-        <Credit />
+        <aside className="help-side" aria-hidden="true">
+          <img src="./help/side-character.png" alt="" />
+        </aside>
       </div>
     </div>
   );
 }
 
-// Кнопка «?» + F1 в любом месте
-export function HelpButton({ start }) {
+export function HelpButton({ start, role }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'F1') { e.preventDefault(); setOpen(true); } };
@@ -189,7 +227,7 @@ export function HelpButton({ start }) {
   return (
     <>
       <button className="help-btn" title="Инструкция (F1)" aria-label="Инструкция" onClick={() => setOpen(true)}><BookOpen size={17} /><span className="lbl">Инструкция</span></button>
-      {open && createPortal(<HelpModal start={start} onClose={() => setOpen(false)} />, document.body)}
+      {open && createPortal(<HelpModal start={start} role={role} onClose={() => setOpen(false)} />, document.body)}
     </>
   );
 }

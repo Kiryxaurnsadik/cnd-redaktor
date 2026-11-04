@@ -1,3 +1,4 @@
+// Если крадёте, то крадите ради реально хороших людей
 import { useEffect, useState } from 'react';
 import { api } from './api/index.js';
 import Login from './components/Login.jsx';
@@ -14,10 +15,14 @@ export default function App() {
   const [session, setSession] = useState(undefined);
   const [screen, setScreen] = useState({ name: 'home' });
   const [helpOpen, setHelpOpen] = useState(false);
+  const [offline, setOffline] = useState('');
 
-  useEffect(() => { api.restore().then(setSession).catch(() => setSession(null)); }, []);
+  const tryRestore = () => {
+    setOffline('');
+    api.restore().then(setSession).catch((e) => { setOffline(e.message || 'Нет связи с сервером'); setSession(null); });
+  };
+  useEffect(tryRestore, []);
 
-  // Автовыход, когда истекают 42 часа
   useEffect(() => {
     if (!session?.expiresAt) return;
     const t = setInterval(() => {
@@ -26,13 +31,25 @@ export default function App() {
     return () => clearInterval(t);
   }, [session]);
 
-  // Свои шрифты фракции нужны и в превью, и в редакторе
   useEffect(() => { if (session && !session.pending) loadCustomFonts(); }, [session?.id, session?.pending]);
 
   if (session === undefined) return <div className="login-wrap" />;
-  // После удачного входа сразу показываем инструкцию (можно выключить в «Моих настройках»)
   const onLogin = (s) => { setSession(s); if (!s.pending && getPrefs().autoHelp) setHelpOpen(true); };
 
+  if (!session && offline) {
+    return (
+      <div className="login-wrap">
+        <div className="card login">
+          <h2>Нет связи</h2>
+          <p className="muted">{offline}</p>
+          <div className="row">
+            <button className="primary" onClick={() => { setSession(undefined); tryRestore(); }}>Повторить</button>
+            <button onClick={() => setOffline('')}>Войти заново</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (!session) return <Login onLogin={onLogin} />;
 
   const logout = async () => { await api.logout(); setSession(null); setScreen({ name: 'home' }); };
@@ -62,7 +79,7 @@ export default function App() {
   return (
     <>
       {page}
-      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+      {helpOpen && <HelpModal role={session.role} onClose={() => setHelpOpen(false)} />}
     </>
   );
 }

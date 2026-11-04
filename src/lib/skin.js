@@ -1,4 +1,4 @@
-// Работа со скинами Minecraft: загрузка по нику или файлом, 2D-голова и плоский персонаж.
+// Если крадёте, то крадите ради реально хороших людей
 import { loadImage } from './util.js';
 
 export const SKIN_SOURCES = {
@@ -6,7 +6,6 @@ export const SKIN_SOURCES = {
   ely: { label: 'Ely.by', url: (n) => `https://skinsystem.ely.by/skins/${encodeURIComponent(n)}.png` },
 };
 
-// Скачивает скин по нику и возвращает dataURL (чтобы холст можно было экспортировать)
 export async function fetchSkinByNick(nick, source = 'mojang') {
   const res = await fetch(SKIN_SOURCES[source].url(nick.trim()));
   if (!res.ok) throw new Error('Скин по этому нику не найден');
@@ -32,7 +31,6 @@ function pixelCanvas(w, h) {
   return [c, ctx];
 }
 
-// Голова 8×8 + слой шляпы, увеличенная без размытия
 export async function renderHead(skinUrl, size = 512, { overlay = true } = {}) {
   const img = await validateSkin(skinUrl);
   const k = img.width / 64;
@@ -43,12 +41,10 @@ export async function renderHead(skinUrl, size = 512, { overlay = true } = {}) {
   return c.toDataURL('image/png');
 }
 
-// Плоский персонаж спереди (как на аватарках): голова, тело, руки, ноги + верхние слои
 export async function renderFlatBody(skinUrl, scale = 24) {
   const img = await validateSkin(skinUrl);
   const k = img.width / 64;
-  const legacy = img.height * 2 === img.width; // старый формат 64×32
-  // тонкие руки (Alex): в 64×64 пиксель на месте 4-й колонки руки прозрачный
+  const legacy = img.height * 2 === img.width;
   const [probe, pctx] = pixelCanvas(img.width, img.height);
   pctx.drawImage(img, 0, 0);
   const slim = !legacy && pctx.getImageData(54 * k, 20 * k, 1, 1).data[3] === 0;
@@ -62,14 +58,12 @@ export async function renderFlatBody(skinUrl, scale = 24) {
     ctx.restore();
   };
   const ax = 4 - aw;
-  // база
-  part(8, 8, 8, 8, 4, 0);            // голова
-  part(20, 20, 8, 12, 4, 8);         // тело
-  part(44, 20, aw, 12, ax, 8);       // правая рука (слева на картинке)
-  part(4, 20, 4, 12, 4, 20);         // правая нога
+  part(8, 8, 8, 8, 4, 0);
+  part(20, 20, 8, 12, 4, 8);
+  part(44, 20, aw, 12, ax, 8);
+  part(4, 20, 4, 12, 4, 20);
   if (legacy) { part(44, 20, aw, 12, 12, 8, true); part(4, 20, 4, 12, 8, 20, true); }
   else { part(36, 52, aw, 12, 12, 8); part(20, 52, 4, 12, 8, 20); }
-  // верхние слои
   part(40, 8, 8, 8, 4, 0);
   if (!legacy) {
     part(20, 36, 8, 12, 4, 8);

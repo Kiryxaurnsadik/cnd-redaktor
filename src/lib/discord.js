@@ -1,5 +1,4 @@
-// Отправка в Discord через вебхук прямо из браузера (картинка + подпись).
-// Текстовые уведомления о проверке/входах шлёт сама база (pg_net), здесь — ручная публикация готовой работы.
+// Если крадёте, то крадите ради реально хороших людей
 export const DISCORD_EVENTS = {
   logins: 'Входы на сайт и неудачные попытки',
   tokens: 'Выдача токенов',
@@ -16,7 +15,7 @@ export async function postToDiscord(url, { content = '', file = null, filename =
   const res = await fetch(`${url}?wait=true`, { method: 'POST', body });
   if (!res.ok) {
     let msg = `Discord ответил ошибкой ${res.status}`;
-    try { const j = await res.json(); if (j.message) msg += `: ${j.message}`; } catch { /* без тела */ }
+    try { const j = await res.json(); if (j.message) msg += `: ${j.message}`; } catch {}
     throw new Error(msg);
   }
   return true;

@@ -1,5 +1,4 @@
-// Демо-бэкенд: всё хранится в localStorage этого браузера.
-// Нужен, чтобы бету можно было потрогать без Supabase. Для фракции — Supabase (см. supabase.js).
+// Если крадёте, то крадите ради реально хороших людей
 import { postToDiscord } from '../lib/discord.js';
 import { TOKEN_HOURS, generateTokenCode, normalizeNick, normalizeTokenCode, sha256, uid } from '../lib/util.js';
 
@@ -11,7 +10,7 @@ function load() {
   try {
     const db = JSON.parse(localStorage.getItem(KEY));
     if (db) return db;
-  } catch { /* пусто */ }
+  } catch {}
   return null;
 }
 function save(db) {
@@ -33,7 +32,7 @@ async function db() {
       }],
       logins: [], works: [], templates: [], exports: [],
       settings: {
-        loginMode: 'instant', // instant | approval
+        loginMode: 'instant',
         positions: [
           { name: 'стажер', role: 'intern' },
           { name: 'журналист', role: 'journalist' },
@@ -54,7 +53,6 @@ async function db() {
   return d;
 }
 
-// В демо уведомления уходят из браузера; на Supabase их шлёт база
 function notify(settings, event, content) {
   if (settings.discordWebhook && settings.discordEvents?.[event]) postToDiscord(settings.discordWebhook, { content }).catch(() => {});
 }
@@ -123,7 +121,6 @@ export const localApi = {
 
   async logout() { localStorage.removeItem(SESSION_KEY); },
 
-  // ---- токены
   async issueToken({ nickname, role, hours = TOKEN_HOURS, note = '', maxUses = null }) {
     const s = requireManager();
     if (s.role !== 'admin' && ['editor', 'admin'].includes(role)) throw new Error('Редактор может выдавать токены только стажёрам и журналистам');
@@ -149,7 +146,6 @@ export const localApi = {
     save(d);
   },
 
-  // ---- журнал входов
   async listLogins() {
     requireManager(); const d = await db();
     return d.logins.map((l) => ({ ...l, token: d.tokens.find((t) => t.id === l.tokenId) || null }));
@@ -159,7 +155,6 @@ export const localApi = {
     const l = d.logins.find((x) => x.id === id); if (l) l.status = status; save(d);
   },
 
-  // ---- настройки
   async getSettings() {
     const d = await db(); const s = getSessionRaw();
     const out = { ...d.settings };
@@ -171,26 +166,44 @@ export const localApi = {
     const d = await db(); d.settings = { ...d.settings, ...settings }; save(d);
   },
 
-  // ---- работы
   async listWorks({ all = false } = {}) {
     const s = requireSession(); const d = await db();
     return d.works
-      .filter((w) => all || w.author === s.nickname)
+      .filter((w) => !w.deletedAt && (all || w.author === s.nickname))
       .map(({ doc, ...meta }) => meta)
       .sort((a, b) => b.updatedAt - a.updatedAt);
   },
-  async getWork(id) { requireSession(); return (await db()).works.find((w) => w.id === id) || null; },
+  async getWork(id) { requireSession(); return (await db()).works.find((w) => w.id === id && !w.deletedAt) || null; },
   async saveWork(work) {
     const s = requireSession(); const d = await db();
     const i = d.works.findIndex((w) => w.id === work.id);
-    const rec = { status: 'draft', ...(i >= 0 ? d.works[i] : { author: s.nickname, createdAt: Date.now() }), ...work, updatedAt: Date.now() };
+    const rec = { status: 'draft', ...(i >= 0 ? d.works[i] : { author: s.nickname, createdAt: Date.now() }), ...work, updatedAt: Date.now(), deletedAt: null };
     if (i >= 0) d.works[i] = rec; else d.works.unshift(rec);
     save(d);
     return rec;
   },
-  async deleteWork(id) { requireSession(); const d = await db(); d.works = d.works.filter((w) => w.id !== id); save(d); },
+  async deleteWork(id) {
+    const s = requireSession(); const d = await db();
+    const w = d.works.find((x) => x.id === id && (x.author === s.nickname || ['editor', 'admin'].includes(s.role)));
+    if (w) { w.deletedAt = Date.now(); save(d); }
+  },
+  async listTrash() {
+    const s = requireSession(); const d = await db();
+    const cut = Date.now() - 30 * 864e5;
+    const before = d.works.length;
+    d.works = d.works.filter((w) => !w.deletedAt || w.deletedAt > cut);
+    if (d.works.length !== before) save(d);
+    return d.works
+      .filter((w) => w.deletedAt && (w.author === s.nickname || ['editor', 'admin'].includes(s.role)))
+      .map(({ doc, ...meta }) => meta)
+      .sort((a, b) => b.deletedAt - a.deletedAt);
+  },
+  async restoreWork(id) {
+    requireSession(); const d = await db();
+    const w = d.works.find((x) => x.id === id); if (w) { w.deletedAt = null; w.updatedAt = Date.now(); save(d); }
+  },
+  async purgeWork(id) { requireSession(); const d = await db(); d.works = d.works.filter((w) => !(w.id === id && w.deletedAt)); save(d); },
 
-  // ---- шаблоны коллег
   async listTemplates() {
     requireSession(); const d = await db();
     return d.templates.filter((t) => !t.hidden);
@@ -215,7 +228,6 @@ export const localApi = {
     d.templates = d.templates.filter((x) => x.id !== id); save(d);
   },
 
-  // ---- журнал экспортов (для невидимой метки и статистики)
   async logExport({ workId, title, format, watermark }) {
     const s = requireSession(); const d = await db();
     const rec = { id: uid(), at: Date.now(), author: s.nickname, workId, title, format, watermark };
@@ -224,7 +236,6 @@ export const localApi = {
   },
   async listExports() { requireManager(); return (await db()).exports; },
 
-  // ---- свои шрифты
   async listFonts() { requireSession(); return (await db()).fonts || []; },
   async saveFont({ family, data }) {
     const s = requireSession(); const d = await db(); d.fonts = d.fonts || [];
@@ -239,7 +250,19 @@ export const localApi = {
     save(d);
   },
 
-  // ---- лента архива
+  async listElements() { requireSession(); return (await db()).elements || []; },
+  async saveElement({ name, data }) {
+    const s = requireSession(); const d = await db(); d.elements = d.elements || [];
+    if (JSON.stringify(data).length > 3000000) throw new Error('Элемент больше 2 МБ');
+    const rec = { id: uid(), name: name.trim().slice(0, 80), author: s.nickname, data, createdAt: Date.now() };
+    d.elements.unshift(rec); save(d); return rec;
+  },
+  async deleteElement(id) {
+    const s = requireSession(); const d = await db();
+    d.elements = (d.elements || []).filter((e) => !(e.id === id && (e.author === s.nickname || ['editor', 'admin'].includes(s.role))));
+    save(d);
+  },
+
   async archiveAdd(item) {
     const s = requireSession(); const d = await db(); d.archive = d.archive || [];
     const old = item.workId && d.archive.find((a) => a.workId === item.workId && a.author === s.nickname);

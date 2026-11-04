@@ -1,3 +1,4 @@
+// Если крадёте, то крадите ради реально хороших людей
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, BadgeCheck, BookmarkPlus, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, Send, Shapes, Type, Undo2, UserRound, X } from 'lucide-react';
 import ThemeToggle from './ThemeToggle.jsx';
@@ -8,7 +9,11 @@ import { api } from '../api/index.js';
 import CanvasStage from './CanvasStage.jsx';
 import PropsPanel from './PropsPanel.jsx';
 import SkinPoser from './SkinPoser.jsx';
-import { BrandPanel, CharactersPanel, ElementsPanel, PhotosPanel, TemplatesPanel, TextPanel } from './Panels.jsx';
+import { BgRemoveModal, UpscaleModal } from './ImageTools.jsx';
+import { BrandPanel, CharactersPanel, PhotosPanel, TemplatesPanel, TextPanel } from './Panels.jsx';
+import ElementsPanel from './ElementsPanel.jsx';
+import { docThumb } from '../lib/thumb.js';
+import { elName } from './PropsPanel.jsx';
 import { BRAND } from '../lib/brand.js';
 import { WATERMARK_STYLES, applyWatermark } from '../lib/watermark.js';
 import { loadCustomFonts } from '../lib/fonts.js';
@@ -28,6 +33,7 @@ export default function Editor({ session, left, go, open }) {
   const [workId, setWorkId] = useState(open.workId || null);
   const [author, setAuthor] = useState(session.nickname);
   const [selectedId, setSelectedId] = useState(null);
+  const [imageTool, setImageTool] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [tab, setTab] = useState('text');
   const [zoom, setZoom] = useState(1);
@@ -56,7 +62,6 @@ export default function Editor({ session, left, go, open }) {
   const hideTips = () => savePrefs({ tips: false });
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2600); };
 
-  // ---- загрузка работы / шаблона
   useEffect(() => {
     api.getSettings().then((s) => s && setSettings((p) => ({ ...p, ...s }))).catch(() => {});
     loadCustomFonts().then(() => setFontTick((t) => t + 1));
@@ -75,14 +80,12 @@ export default function Editor({ session, left, go, open }) {
     return () => document.fonts?.removeEventListener?.('loadingdone', onDone);
   }, []);
 
-  // Подгрузить все шрифты, которые есть в документе
   useEffect(() => {
     if (!doc) return;
     const fams = new Set(doc.elements.filter((e) => e.type === 'text').map((e) => `${e.fontStyle?.includes('italic') ? 'italic ' : ''}${e.fontStyle?.includes('bold') ? '700' : '400'} 32px "${e.fontFamily}"`));
     Promise.all([...fams].map((f) => document.fonts.load(f, 'АаЯя Aa').catch(() => {}))).then(() => setFontTick((t) => t + 1));
   }, [doc?.elements]);
 
-  // ---- масштаб под окно
   useLayoutEffect(() => {
     if (!doc) return;
     const calc = () => {
@@ -94,8 +97,9 @@ export default function Editor({ session, left, go, open }) {
   }, [doc?.width, doc?.height]);
   const scale = Math.max(0.05, fit * zoom);
 
-  // ---- история
+  const touched = useRef(false);
   const commit = useCallback((next) => {
+    touched.current = true;
     setDocState((prev) => {
       const value = typeof next === 'function' ? next(prev) : next;
       if (value !== prev) {
@@ -106,14 +110,13 @@ export default function Editor({ session, left, go, open }) {
       return value;
     });
   }, []);
-  const undo = () => { const h = history.current; if (!h.past.length) return; setDocState((cur) => { h.future.push(cur); return h.past.pop(); }); };
-  const redo = () => { const h = history.current; if (!h.future.length) return; setDocState((cur) => { h.past.push(cur); return h.future.pop(); }); };
+  const undo = () => { const h = history.current; if (!h.past.length) return; touched.current = true; setDocState((cur) => { h.future.push(cur); return h.past.pop(); }); };
+  const redo = () => { const h = history.current; if (!h.future.length) return; touched.current = true; setDocState((cur) => { h.past.push(cur); return h.future.pop(); }); };
 
   const update = useCallback((id, patch) => commit((d) => ({ ...d, elements: d.elements.map((e) => (e.id === id ? { ...e, ...patch } : e)) })), [commit]);
   const updateDoc = (patch) => commit((d) => ({ ...d, ...patch }));
   const selected = doc?.elements.find((e) => e.id === selectedId) || null;
 
-  // ---- добавление
   const add = (spec) => {
     const items = Array.isArray(spec) ? spec : [spec];
     const base = items[0];
@@ -131,12 +134,11 @@ export default function Editor({ session, left, go, open }) {
       const k = Math.min(1, (doc.width * 0.6) / img.width, (doc.height * 0.6) / img.height);
       width = img.width * k; height = img.height * k;
     }
-    // Если выделена рамка для фото — кладём картинку в неё (с обрезкой по пропорциям рамки)
-    const ph = doc.elements.find((e) => e.id === (placeholderTarget.current || selectedId) && e.type === 'placeholder');
-    placeholderTarget.current = null;
+    const targetId = placeholderTarget.current; placeholderTarget.current = null;
+    const ph = targetId ? doc.elements.find((e) => e.id === targetId && isFrame(e)) : doc.elements.find((e) => e.id === selectedId && isFrame(e, true));
     if (ph && !opts.name) {
       const cropped = await coverCrop(src, ph.width, ph.height);
-      commit((d) => ({ ...d, elements: d.elements.map((e) => (e.id === ph.id ? { id: e.id, type: 'image', src: cropped, x: e.x, y: e.y, width: e.width, height: e.height, rotation: e.rotation, opacity: e.opacity } : e)) }));
+      commit((d) => ({ ...d, elements: d.elements.map((e) => (e.id === ph.id ? photoInFrame(e, cropped) : e)) }));
       setSelectedId(ph.id);
       return;
     }
@@ -152,7 +154,6 @@ export default function Editor({ session, left, go, open }) {
     await addImage(src);
   };
 
-  // ---- действия с выделенным
   const actions = {
     remove: () => { if (!selected) return; commit((d) => ({ ...d, elements: d.elements.filter((e) => e.id !== selected.id) })); setSelectedId(null); },
     duplicate: () => {
@@ -167,14 +168,61 @@ export default function Editor({ session, left, go, open }) {
       els.splice(j, 0, el); return { ...d, elements: els };
     }),
     center: () => selected && update(selected.id, { x: Math.round((doc.width - (selected.width || 0)) / 2), y: selected.type === 'text' ? selected.y : Math.round((doc.height - (selected.height || 0)) / 2) }),
+    align: (where) => {
+      if (!selected) return;
+      const node = stageApi.current?.stage()?.findOne(`#${selected.id}`);
+      const box = node ? node.getClientRect({ relativeTo: node.getLayer() }) : { x: selected.x, y: selected.y, width: selected.width || 0, height: selected.height || 0 };
+      const dx = where === 'left' ? -box.x : where === 'right' ? doc.width - box.x - box.width : where === 'hcenter' ? (doc.width - box.width) / 2 - box.x : 0;
+      const dy = where === 'top' ? -box.y : where === 'bottom' ? doc.height - box.y - box.height : where === 'vcenter' ? (doc.height - box.height) / 2 - box.y : 0;
+      update(selected.id, { x: Math.round(selected.x + dx), y: Math.round(selected.y + dy) });
+    },
+    saveAsElement: async () => {
+      if (!selected) return;
+      const { id: _id, x: _x, y: _y, locked: _l, ...spec } = structuredClone(selected);
+      const name = elName(selected);
+      try {
+        let thumb = null;
+        if (selected.type === 'image') thumb = await compressImage(selected.src, 160, 0.8, 'image/png');
+        else if (selected.type !== 'shape') thumb = await docThumb({ width: selected.width || 300, height: selected.height || selected.fontSize * 2 || 200, background: '#ffffff', elements: [{ ...spec, id: 'x', x: 0, y: 0, rotation: 0 }] }, null, 160);
+        await api.saveElement({ name, data: { spec, thumb } });
+        flash('Сохранено в «Элементы → Элементы редакции»');
+      } catch (e) { flash(e.message || 'Не получилось сохранить'); }
+    },
     fitImage: () => selected && update(selected.id, { x: 0, y: 0, width: doc.width, height: doc.height }),
+    imageTool: (kind) => selected?.type === 'image' && setImageTool(kind),
+    restoreImage: async () => {
+      if (!selected?.origSrc) return;
+      const img = await loadImage(selected.origSrc);
+      update(selected.id, { src: selected.origSrc, origSrc: undefined, height: selected.width * (img.height / img.width) });
+      flash('Вернул оригинал');
+    },
     resetRatio: async () => { if (!selected) return; const img = await loadImage(selected.src); update(selected.id, { height: selected.width * (img.height / img.width) }); },
     pickPhotoForPlaceholder: () => { placeholderTarget.current = selectedId; document.getElementById('photo-file').click(); },
+    toFrame: () => {
+      if (!selected) return;
+      const ph = {
+        id: selected.id, type: 'placeholder', x: selected.x, y: selected.y, width: selected.width, height: selected.height,
+        rotation: selected.rotation, opacity: selected.opacity, fill: '#9aa6b8', label: 'Перетащите фото', name: selected.name,
+        mask: selected.type === 'image' ? selected.mask : undefined, cornerRadius: selected.cornerRadius,
+        clipPath: selected.type === 'shape' ? selected.path : selected.clipPath, clipVb: selected.type === 'shape' ? selected.vb : selected.clipVb,
+        frameStroke: selected.type === 'shape' ? (selected.strokeWidth ? selected.stroke : undefined) : selected.frameStroke,
+        frameStrokeWidth: selected.type === 'shape' ? selected.strokeWidth : selected.frameStrokeWidth, shadow: selected.shadow,
+      };
+      commit((d) => ({ ...d, elements: d.elements.map((e) => (e.id === selected.id ? ph : e)) }));
+      flash('Теперь это рамка: перетащите на неё фото');
+    },
+
   };
 
   const applyColor = (c) => {
     if (!selected) { updateDoc({ background: c }); return; }
-    update(selected.id, selected.type === 'line' ? { stroke: c } : { fill: c });
+    const patch = selected.type === 'line' ? { stroke: c }
+      : selected.type === 'chart' ? { colors: [c, ...(selected.colors || []).slice(1)] }
+        : selected.type === 'table' ? { head: c }
+          : selected.type === 'image' ? { stroke: c, strokeWidth: selected.strokeWidth || 8 }
+            : { fill: c, gradient: undefined };
+    update(selected.id, patch);
+
   };
   const applyFont = (f, quiet) => selected?.type === 'text' ? update(selected.id, { fontFamily: f }) : !quiet && flash('Выделите текст');
   const applyTemplate = (t) => {
@@ -183,7 +231,6 @@ export default function Editor({ session, left, go, open }) {
     flash('Шаблон применён. Ctrl+Z — вернуть прежний дизайн');
   };
 
-  // ---- клавиатура и вставка
   useEffect(() => {
     const onKey = (e) => {
       const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
@@ -212,7 +259,6 @@ export default function Editor({ session, left, go, open }) {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('paste', onPaste); };
   });
 
-  // ---- автосохранение
   const savingRef = useRef(null);
   const persist = async (extra = {}) => {
     if (!doc) return;
@@ -228,12 +274,12 @@ export default function Editor({ session, left, go, open }) {
   useEffect(() => {
     if (!doc) return;
     clearTimeout(savingRef.current);
+    if (!touched.current) { setSaved(workId ? '' : 'Без изменений — не в «Моих работах»'); return undefined; }
     setSaved('Сохраняю…');
     savingRef.current = setTimeout(() => persist().catch(() => {}), 1500);
     return () => clearTimeout(savingRef.current);
   }, [doc, title]);
 
-  // ---- экспорт и копирование
   const styleNow = (settings.watermarkChoice && wmStyle) || settings.watermarkStyle || 'corner';
   const renderFinal = async (format, mult) => {
     setEditingId(null);
@@ -242,7 +288,7 @@ export default function Editor({ session, left, go, open }) {
     try {
       const rec = await api.logExport({ workId, title, format, watermark: WATERMARK_STYLES[styleNow] || styleNow });
       exportId = rec?.id || '';
-    } catch { /* экспорт всё равно делаем */ }
+    } catch {}
     const k = canvas.width / doc.width;
     const avoid = doc.elements.filter((e) => e.type === 'image' && /логотип/i.test(e.name || '') && e.visible !== false)
       .map((e) => ({ x: e.x * k, y: e.y * k, width: e.width * k, height: e.height * k }));
@@ -251,7 +297,6 @@ export default function Editor({ session, left, go, open }) {
   };
   const toBlob = (canvas, type, q) => new Promise((r) => canvas.toBlob(r, type, q));
 
-  // Готовая картинка (уже с водяным знаком) уходит в общую ленту архива
   const scaled = (canvas, max, q) => {
     const k = Math.min(1, max / Math.max(canvas.width, canvas.height));
     const c = document.createElement('canvas'); c.width = Math.round(canvas.width * k); c.height = Math.round(canvas.height * k);
@@ -281,7 +326,6 @@ export default function Editor({ session, left, go, open }) {
     setExportOpen(false);
   };
 
-  // Браузеры копируют картинки только в PNG
   const copyToClipboard = () => {
     if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') { flash('Браузер не умеет копировать картинки, скачайте файл'); return; }
     const blobPromise = renderFinal('png-буфер', exportOpts.mult).then((c) => { archiveIfNeeded(c); return toBlob(c, 'image/png'); });
@@ -329,9 +373,9 @@ export default function Editor({ session, left, go, open }) {
   return (
     <div className="editor">
       <div className="topbar">
-        <button onClick={async () => { await persist().catch(() => {}); go({ name: 'home' }); }} title="Сохранить и выйти к работам"><ArrowLeft size={16} /> Работы</button>
+        <button onClick={async () => { if (touched.current) await persist().catch(() => {}); go({ name: 'home' }); }} title="Сохранить и выйти к работам"><ArrowLeft size={16} /> Работы</button>
         <img className="logo" src={BRAND.iconWhite} alt="" />
-        <input className="title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <input className="title" value={title} onChange={(e) => { touched.current = true; setTitle(e.target.value); }} />
         <span className="saved">{saved}</span>
         <span className="sep" />
         <button className="icon" title="Отменить (Ctrl+Z)" aria-label="Отменить" onClick={undo}><Undo2 size={17} /></button>
@@ -343,7 +387,7 @@ export default function Editor({ session, left, go, open }) {
         <Who compact session={session} label={author !== session.nickname ? `Автор: ${author}` : session.nickname} />
         <button onClick={() => setTplForm({ name: title, tags: '' })} title="Опубликовать дизайн как шаблон для коллег"><BookmarkPlus size={16} /> В шаблоны</button>
         <button onClick={copyToClipboard} title="Копировать картинку в буфер (Ctrl+Shift+C)"><Copy size={16} /> Копировать</button>
-        <HelpButton start="editor" />
+        <HelpButton start="editor" role={session.role} />
         <UserSettingsButton />
         <ThemeToggle />
         <div style={{ position: 'relative' }}>
@@ -400,18 +444,17 @@ export default function Editor({ session, left, go, open }) {
           {tab === 'templates' && <TemplatesPanel applyTemplate={applyTemplate} />}
           {tab === 'text' && <TextPanel add={add} />}
           {tab === 'photos' && <PhotosPanel addImageFile={addImageFile} uploads={uploads} addImage={addImage} />}
-          {tab === 'elements' && <ElementsPanel add={add} />}
+          {tab === 'elements' && <ElementsPanel add={add} addImage={addImage} flash={flash} />}
           {tab === 'characters' && <CharactersPanel addImage={addImage} openPoser={(skin, mode = 'body') => setPoserSkin({ skin, mode })} />}
           {tab === 'brand' && <BrandPanel addImage={addImage} applyColor={applyColor} applyFont={applyFont} />}
-          {/* скрытое поле выбора фото нужно и вне вкладки «Фото» (кнопка «Вставить фото сюда») */}
-          {tab !== 'photos' && <input id="photo-file" type="file" accept="image/*" hidden onChange={(e) => [...e.target.files].forEach((f) => addImageFile(f))} />}
+          {tab !== 'photos' && <input id="photo-file" type="file" accept="image/*" hidden onChange={(e) => { [...e.target.files].forEach((f) => addImageFile(f)); e.target.value = ''; }} />}
         </div>
         <div className="workspace" ref={wsRef}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
             const target = stageApi.current?.elementAt(e.clientX, e.clientY);
-            const ph = doc.elements.find((x) => x.id === target && x.type === 'placeholder');
+            const ph = doc.elements.find((x) => x.id === target && isFrame(x));
             [...e.dataTransfer.files].forEach((f, i) => addImageFile(f, i === 0 && ph ? ph.id : null));
           }}>
           <div className="stage-shadow" style={{ position: 'relative' }}>
@@ -430,6 +473,10 @@ export default function Editor({ session, left, go, open }) {
         </div>
         <PropsPanel doc={doc} el={selected} update={update} updateDoc={updateDoc} actions={actions} select={setSelectedId} selectedId={selectedId} />
       </div>
+      {imageTool && selected?.type === 'image' && (() => {
+        const Tool = imageTool === 'bg' ? BgRemoveModal : UpscaleModal;
+        return <Tool el={selected} onClose={() => setImageTool(null)} onApply={(src, orig) => { update(selected.id, { src, origSrc: orig }); setImageTool(null); flash(imageTool === 'bg' ? 'Фон убран' : 'Качество улучшено'); }} />;
+      })()}
       {poserSkin && <SkinPoser skin={poserSkin.skin} mode={poserSkin.mode} onClose={() => setPoserSkin(null)} onInsert={(url, m) => { setPoserSkin(null); addImage(url, { name: m === 'head' ? '3D-голова' : '3D-персонаж' }); }} />}
       {tplForm && (
         <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && setTplForm(null)}>
@@ -470,7 +517,6 @@ function TextOverlay({ el, scale, onDone }) {
   );
 }
 
-// Обрезка «cover»: картинка заполняет рамку без искажений
 async function coverCrop(src, w, h) {
   const img = await loadImage(src);
   const k = Math.max(w / img.width, h / img.height);
@@ -480,4 +526,22 @@ async function coverCrop(src, w, h) {
   const sw = w / k, sh = h / k; const sx = (img.width - sw) / 2, sy = (img.height - sh) / 2;
   c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, outW, outH);
   return c.toDataURL('image/jpeg', 0.9);
+}
+
+function isFrame(e, strict = false) {
+  if (!e) return false;
+  if (e.type === 'placeholder') return true;
+  if (e.type === 'shape') return !e.outline;
+  return !strict && e.type === 'image' && !!(e.mask || e.clipPath);
+}
+
+function photoInFrame(e, src) {
+  const fromShape = e.type === 'shape';
+  return {
+    id: e.id, type: 'image', src, x: e.x, y: e.y, width: e.width, height: e.height, rotation: e.rotation, opacity: e.opacity,
+    name: e.type === 'image' ? e.name : undefined, mask: fromShape ? undefined : e.mask, cornerRadius: e.cornerRadius,
+    clipPath: fromShape ? e.path : e.clipPath, clipVb: fromShape ? e.vb : e.clipVb,
+    frameStroke: fromShape ? (e.strokeWidth ? e.stroke || '#000000' : undefined) : e.frameStroke,
+    frameStrokeWidth: fromShape ? e.strokeWidth : e.frameStrokeWidth, shadow: e.shadow, fx: e.type === 'shape' ? undefined : e.fx,
+  };
 }

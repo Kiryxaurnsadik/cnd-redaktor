@@ -1,5 +1,4 @@
-// Водяной знак ставится на готовую картинку при каждом экспорте и копировании.
-// Стажёрам и неодобренным работам — крупная плитка «ЧЕРНОВИК CND».
+// Если крадёте, то крадите ради реально хороших людей
 import { BRAND } from './brand.js';
 import { loadImage } from './util.js';
 
@@ -28,7 +27,6 @@ export async function applyWatermark(canvas, {
   draft = false, author = '', exportId = '', opacity = 0.85, corner = 'br', avoid = [], style = 'corner',
 } = {}) {
   const ctx = canvas.getContext('2d');
-  // Konva отдаёт холст с уже применённым масштабом — сбрасываем, чтобы рисовать в реальных пикселях
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const W = canvas.width, H = canvas.height;
   const S = Math.min(W, H);
@@ -40,11 +38,9 @@ export async function applyWatermark(canvas, {
   const dark = luminanceAt(ctx, x, y, size, size) < 110;
   const [icon, iconWhite] = await Promise.all([loadImage(BRAND.icon), loadImage(BRAND.iconWhite)]);
   const logo = dark ? iconWhite : icon;
-  // Если в этом углу уже стоит логотип CND из шаблона (не меньше самого знака) — второй знак не ставим
   const covered = avoid.some((b) => b.width * b.height >= size * size * 0.5
     && x < b.x + b.width + margin && x + size + margin > b.x && y < b.y + b.height + margin && y + size + margin > b.y);
   const date = new Date().toLocaleDateString('ru-RU');
-  // Подпись и штамп крупнее значка: если в их углу логотип шаблона, переносим на другую сторону
   const hits = (bx, by, bw, bh) => avoid.some((b) => bx < b.x + b.width && bx + bw > b.x && by < b.y + b.height && by + bh > b.y);
   const side = (bw, bh) => {
     let l = left;
@@ -141,7 +137,6 @@ export async function applyWatermark(canvas, {
     ctx.restore();
   }
 
-  // Невидимая метка: автор и номер экспорта зашиты в младшие биты синего канала первой строки
   if (exportId) embedMark(ctx, W, `CND|${author}|${exportId}`);
   return canvas;
 }
@@ -158,7 +153,6 @@ function embedMark(ctx, W, text) {
   ctx.putImageData(img, 0, 0);
 }
 
-// Прочитать метку из картинки (для админки «Чья это работа?»). Работает только с PNG без пересжатия.
 export async function readMark(src) {
   const img = await loadImage(src);
   const c = document.createElement('canvas'); c.width = img.width; c.height = 1;

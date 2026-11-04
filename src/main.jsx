@@ -1,3 +1,4 @@
+// Если крадёте, то крадите ради реально хороших людей
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import './styles.css';
@@ -5,8 +6,6 @@ import { applyTheme } from './lib/theme.js';
 
 applyTheme();
 
-// Защита от копирования: собранный сайт работает только на разрешённых доменах
-// eslint-disable-next-line no-undef
 const allowed = typeof __CND_DOMAINS__ !== 'undefined' ? __CND_DOMAINS__ : null;
 const host = location.hostname;
 if (allowed && !allowed.some((d) => host === d || host.endsWith(`.${d}`))) {

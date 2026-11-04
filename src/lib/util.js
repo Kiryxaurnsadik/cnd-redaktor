@@ -1,3 +1,4 @@
+// Если крадёте, то крадите ради реально хороших людей
 export const TOKEN_HOURS = 42;
 
 export const ROLES = {
@@ -11,7 +12,6 @@ export const roleLabel = (r) => ROLES[r]?.label || r;
 export const canManage = (role) => (ROLES[role]?.rank || 0) >= 3;
 export const isAdmin = (role) => role === 'admin';
 
-// Ник сравниваем без учёта регистра, пробелов, «_», «-» и ё/е
 export function normalizeNick(s) {
   return (s || '')
     .toLowerCase()
@@ -48,7 +48,6 @@ export function formatLeft(ms) {
   return d ? `${d} д ${h} ч ${String(m).padStart(2, '0')} мин` : `${h} ч ${String(m).padStart(2, '0')} мин`;
 }
 
-// Таймер с секундами: «2 д 04:15:09» или «04:15:09»
 export function formatTimer(ms) {
   if (ms <= 0) return '00:00:00';
   const d = Math.floor(ms / 86400000);
@@ -59,7 +58,6 @@ export function formatTimer(ms) {
   return `${d ? `${d} д ` : ''}${hh}:${mm}:${ss}`;
 }
 
-// Длительность в часах словами: 42 → «42 ч», 72 → «3 д», 30 → «1 д 6 ч»
 export function formatHours(hours) {
   const d = Math.floor(hours / 24), h = hours % 24;
   if (!d || (hours < 48 && h)) return `${hours} ч`;
@@ -76,7 +74,6 @@ export function formatDate(ts) {
   });
 }
 
-// Сжимает картинку (File/Blob/dataURL) до JPEG dataURL нужного размера
 export async function compressImage(src, maxSide = 900, quality = 0.82, type = 'image/jpeg') {
   const url = typeof src === 'string' ? src : URL.createObjectURL(src);
   const img = await loadImage(url);

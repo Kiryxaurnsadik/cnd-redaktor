@@ -1,3 +1,4 @@
+// Если крадёте, то крадите ради реально хороших людей
 import { useEffect, useState } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { resolveTheme, setThemeChoice } from '../lib/theme.js';

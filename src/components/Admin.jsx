@@ -1,3 +1,4 @@
+// Если крадёте, то крадите ради реально хороших людей
 import { ArrowLeft, FolderOpen, IdCard, ImageDown, KeyRound, LogIn, MessageSquare, Plus, ScrollText, Search, Settings2, Stamp, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/index.js';
@@ -117,7 +118,6 @@ function Logins({ flash }) {
   const reload = () => api.listLogins().then(setList).catch((e) => flash(e.message));
   useEffect(() => { reload(); }, []);
 
-  // Подозрительно: по одному токену входили разные ники
   const suspicious = useMemo(() => {
     const byToken = {};
     list.forEach((l) => { if (l.tokenId) (byToken[l.tokenId] ||= new Set()).add(normalizeNick(l.nickname)); });
@@ -260,7 +260,6 @@ function Settings({ flash }) {
   useEffect(() => {
     api.getSettings().then((d) => {
       const v = { watermarkStyle: 'corner', watermarkChoice: true, discordWebhook: '', discordChannels: [], discordEvents: {}, positions: [], ...d };
-      // старый единственный вебхук превращаем в канал
       if (!v.discordChannels.length && v.discordWebhook) v.discordChannels = [{ name: 'основной', url: v.discordWebhook }];
       setS(v); setSaved(JSON.stringify(v));
     });

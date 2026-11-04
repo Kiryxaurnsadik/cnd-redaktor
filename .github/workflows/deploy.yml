@@ -1,4 +1,4 @@
-# Автопубликация на GitHub Pages при каждом push в main
+# Если крадёте, то крадите ради реально хороших людей
 name: Deploy to GitHub Pages
 on:
   push:

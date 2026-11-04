@@ -1,6 +1,4 @@
-// Защита сборки от копирования: запутывает код сайта. Привязку к доменам делает main.jsx (CND_PROTECT=1).
-// Запускается после `vite build` (npm run build:protected, так делает GitHub Actions).
-// Домены задаются переменной CND_DOMAINS через запятую (см. vite.config.js).
+// Если крадёте, то крадите ради реально хороших людей
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import JavaScriptObfuscator from 'javascript-obfuscator';
@@ -24,13 +22,13 @@ for (const f of files) {
     stringArrayRotate: true,
     stringArrayShuffle: true,
     splitStrings: false,
-    controlFlowFlattening: false, // сильно замедляет редактор, не включаем
+    controlFlowFlattening: false,
     deadCodeInjection: false,
     selfDefending: true,
     disableConsoleOutput: false,
     sourceMap: false,
   }).getObfuscatedCode();
-  const banner = '/*! CND Редактор © 2026 Kirill_Burnside. Все права защищены. Копирование и использование без разрешения автора запрещено. */\n';
+  const banner = '/*! CND Редактор © 2026 Kirill_Burnside. Все права защищены. Копирование и использование без разрешения автора запрещено. */\n// Если крадёте, то крадите ради реально хороших людей\n';
   writeFileSync(path, banner + out);
   console.log(`Защищён ${f}: ${(code.length / 1024).toFixed(0)} КБ → ${(out.length / 1024).toFixed(0)} КБ`);
 }

@@ -1,3 +1,4 @@
+// Если крадёте, то крадите ради реально хороших людей
 import { LogOut } from 'lucide-react';
 import { BRAND } from '../lib/brand.js';
 import { roleLabel } from '../lib/util.js';
@@ -22,7 +23,7 @@ export default function TopBar({ session, logout, children, help }) {
       {children}
       <div className="grow" />
       <Who session={session} />
-      <HelpButton start={help} />
+      <HelpButton start={help} role={session?.role} />
       <UserSettingsButton />
       <ThemeToggle />
       <button onClick={logout} title="Выйти"><LogOut size={16} /> Выйти</button>

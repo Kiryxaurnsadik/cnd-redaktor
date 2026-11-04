@@ -1,6 +1,7 @@
+// Если крадёте, то крадите ради реально хороших людей
 import { useEffect, useState } from 'react';
 import { api } from '../api/index.js';
-import { BRAND, BRAND_COLORS } from '../lib/brand.js';
+import { BRAND, BRAND_COLORS, ADAMS_THANKS } from '../lib/brand.js';
 import { FONT_TYPES, deleteFont, importFontFile, useFonts } from '../lib/fonts.js';
 import { OFFICIAL_TEMPLATES } from '../lib/templates.js';
 import { SKIN_SOURCES, fetchSkinByNick, renderFlatBody, renderHead, validateSkin } from '../lib/skin.js';
@@ -36,29 +37,13 @@ export function TextPanel({ add }) {
   );
 }
 
-export function ElementsPanel({ add }) {
-  return (
-    <>
-      <h3>Элементы</h3>
-      <button className="add-btn" onClick={() => add({ type: 'rect', width: 400, height: 250, fill: '#0B7CFC' })}><Square size={16} /> Прямоугольник</button>
-      <button className="add-btn" onClick={() => add({ type: 'rect', width: 400, height: 80, fill: '#03316F', cornerRadius: 40 })}><RectangleHorizontal size={16} /> Плашка со скруглением</button>
-      <button className="add-btn" onClick={() => add({ type: 'ellipse', width: 300, height: 300, fill: '#0B7CFC' })}><Circle size={16} /> Круг</button>
-      <button className="add-btn" onClick={() => add({ type: 'line', points: [0, 0, 600, 0], stroke: '#111111', strokeWidth: 4 })}><Minus size={16} /> Линия</button>
-      <button className="add-btn" onClick={() => add({ type: 'line', points: [0, 0, 600, 0], stroke: '#111111', strokeWidth: 3, dash: true })}><MoreHorizontal size={16} /> Пунктир</button>
-      <button className="add-btn" onClick={() => add({ type: 'placeholder', width: 600, height: 400, fill: '#9aa6b8', label: 'Перетащите фото' })}><Frame size={16} /> Рамка для фото</button>
-      <button className="add-btn" onClick={() => add({ type: 'rect', width: 800, height: 300, fill: '#000000', opacity: 0.5 })}><Contrast size={16} /> Затемнение под текст</button>
-      <p className="small muted">Подсказка: элемент появляется в центре листа. Цвет меняется справа или во вкладке «Бренд».</p>
-    </>
-  );
-}
-
 export function PhotosPanel({ addImageFile, uploads, addImage }) {
   return (
     <>
       <h3>Фото и скриншоты</h3>
       <button className="primary" style={{ width: '100%' }} onClick={() => document.getElementById('photo-file').click()}><Upload size={16} /> Загрузить фото</button>
       <input id="photo-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden
-        onChange={(e) => [...e.target.files].forEach(addImageFile)} />
+        onChange={(e) => { [...e.target.files].forEach((f) => addImageFile(f)); e.target.value = ''; }} />
       <p className="small muted">Можно перетащить файл прямо на холст или нажать Ctrl+V со скриншотом. Если выделена рамка для фото — картинка встанет в неё.</p>
       <div className="thumbs">
         {uploads.map((u, i) => <div key={i} className="t" style={{ backgroundImage: `url(${u})`, imageRendering: 'auto' }} onClick={() => addImage(u)} />)}
@@ -85,7 +70,7 @@ export function CharactersPanel({ addImage, openPoser }) {
   const remember = (url, label) => {
     const next = [{ url, label }, ...recent.filter((r) => r.url !== url)].slice(0, 12);
     setRecent(next);
-    try { localStorage.setItem(SKINS_KEY, JSON.stringify(next)); } catch { /* мало места */ }
+    try { localStorage.setItem(SKINS_KEY, JSON.stringify(next)); } catch {}
   };
   const useSkin = async (url, label) => {
     setError('');
@@ -102,6 +87,7 @@ export function CharactersPanel({ addImage, openPoser }) {
   return (
     <>
       <h3>Персонажи со скинов</h3>
+      <p className="small muted thanks">{ADAMS_THANKS}</p>
       <label>Скин по никнейму</label>
       <div className="row">
         <input value={nick} onChange={(e) => setNick(e.target.value)} placeholder="Никнейм" onKeyDown={(e) => e.key === 'Enter' && byNick()} />

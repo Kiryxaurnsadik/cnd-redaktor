@@ -1,4 +1,4 @@
-// Живой таймер до окончания срока токена/сессии (тикает раз в секунду)
+// Если крадёте, то крадите ради реально хороших людей
 import { useEffect, useState } from 'react';
 import { formatTimer } from '../lib/util.js';
 

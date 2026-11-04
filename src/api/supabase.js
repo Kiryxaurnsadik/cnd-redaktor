@@ -1,4 +1,4 @@
-// Боевой бэкенд: Supabase. Все действия идут через функции из supabase/schema.sql.
+// Если крадёте, то крадите ради реально хороших людей
 import { createClient } from '@supabase/supabase-js';
 import { TOKEN_HOURS } from '../lib/util.js';
 
@@ -22,7 +22,14 @@ export function createSupabaseApi(url, anonKey) {
 
     async restore() {
       if (!secret()) return null;
-      try { return await rpc('cnd_restore'); } catch { localStorage.removeItem(SESSION_KEY); return null; }
+      for (let attempt = 0; ; attempt++) {
+        try { return await rpc('cnd_restore'); } catch (e) {
+          const msg = String(e?.message || '');
+          if (/Сессия|Токен|отклон|запрещ|не найден/i.test(msg)) { localStorage.removeItem(SESSION_KEY); return null; }
+          if (attempt >= 2) throw new Error('Нет связи с сервером. Сессия сохранена — обновите страницу, когда интернет вернётся.');
+          await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+        }
+      }
     },
     async login({ token, nickname, idPhoto }) {
       const s = await rpc('cnd_login', {
@@ -33,7 +40,7 @@ export function createSupabaseApi(url, anonKey) {
       return session;
     },
     async logout() {
-      try { await rpc('cnd_logout'); } catch { /* всё равно выходим */ }
+      try { await rpc('cnd_logout'); } catch {}
       localStorage.removeItem(SESSION_KEY);
     },
 
@@ -53,6 +60,9 @@ export function createSupabaseApi(url, anonKey) {
     getWork: (id) => rpc('cnd_get_work', { p_id: id }),
     saveWork: (work) => rpc('cnd_save_work', { p_work: work }),
     deleteWork: (id) => rpc('cnd_delete_work', { p_id: id }),
+    listTrash: () => rpc('cnd_list_trash'),
+    restoreWork: (id) => rpc('cnd_restore_work', { p_id: id }),
+    purgeWork: (id) => rpc('cnd_purge_work', { p_id: id }),
 
     listTemplates: () => rpc('cnd_list_templates'),
     saveTemplate: (tpl) => rpc('cnd_save_template', { p_tpl: tpl }),
@@ -67,6 +77,10 @@ export function createSupabaseApi(url, anonKey) {
     listFonts: () => rpc('cnd_list_fonts'),
     saveFont: ({ family, data }) => rpc('cnd_save_font', { p_family: family, p_data: data }),
     deleteFont: (id) => rpc('cnd_delete_font', { p_id: id }),
+
+    listElements: () => rpc('cnd_list_elements'),
+    saveElement: ({ name, data }) => rpc('cnd_save_element', { p_name: name, p_data: data }),
+    deleteElement: (id) => rpc('cnd_delete_element', { p_id: id }),
 
     archiveAdd: (item) => rpc('cnd_archive_add', { p_item: item }),
     archiveList: ({ q = '', before = null, limit = 40 } = {}) => rpc('cnd_archive_list', { p_q: q, p_before: before, p_limit: limit }),

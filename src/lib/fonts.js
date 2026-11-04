@@ -1,9 +1,9 @@
-// Свои шрифты фракции: хранятся в базе, подключаются в браузер через FontFace.
+// Если крадёте, то крадите ради реально хороших людей
 import { useEffect, useState } from 'react';
 import { api } from '../api/index.js';
 import { FONTS } from './brand.js';
 
-let custom = [];          // [{ id, family, author }]
+let custom = [];
 const loaded = new Set();
 
 const emit = () => window.dispatchEvent(new Event('cnd-fonts'));
@@ -15,7 +15,7 @@ async function register(f) {
     await face.load();
     document.fonts.add(face);
     loaded.add(f.family);
-  } catch { /* битый файл шрифта пропускаем */ }
+  } catch {}
 }
 
 export async function loadCustomFonts() {
@@ -24,7 +24,7 @@ export async function loadCustomFonts() {
     await Promise.all(list.map(register));
     custom = list.map(({ data, ...meta }) => meta);
     emit();
-  } catch { /* без своих шрифтов редактор тоже работает */ }
+  } catch {}
   return custom;
 }
 
@@ -39,7 +39,6 @@ export async function importFontFile(file, family) {
   const data = await new Promise((res, rej) => {
     const r = new FileReader(); r.onload = () => res(String(r.result).replace(/^data:[^;]*;/, `data:${mime};`)); r.onerror = rej; r.readAsDataURL(file);
   });
-  // проверяем, что браузер вообще может прочитать этот шрифт
   try { await new FontFace(`check-${Date.now()}`, `url(${data})`).load(); } catch { throw new Error('Браузер не смог прочитать этот шрифт'); }
   const rec = await api.saveFont({ family: name, data });
   loaded.delete(name);
@@ -55,7 +54,6 @@ export async function deleteFont(id) {
   emit();
 }
 
-// Все шрифты: встроенные + свои
 export function useFonts() {
   const [list, setList] = useState(custom);
   useEffect(() => {

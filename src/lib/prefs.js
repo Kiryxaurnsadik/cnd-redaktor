@@ -1,11 +1,11 @@
-// Личные настройки сотрудника (хранятся в этом браузере)
+// Если крадёте, то крадите ради реально хороших людей
 import { useEffect, useState } from 'react';
 
 const KEY = 'cnd_prefs_v1';
 export const DEFAULT_PREFS = {
-  autoHelp: true,         // открывать инструкцию после входа
-  tips: true,             // подсказки внизу редактора
-  archiveOnExport: true,  // при скачивании/копировании класть работу в ленту архива
+  autoHelp: true,
+  tips: true,
+  archiveOnExport: true,
   exportFormat: 'png',
   exportMult: 1,
   exportQuality: 0.92,
@@ -16,7 +16,7 @@ export function getPrefs() {
 }
 export function setPrefs(patch) {
   const next = { ...getPrefs(), ...patch };
-  try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* приватный режим */ }
+  try { localStorage.setItem(KEY, JSON.stringify(next)); } catch {}
   window.dispatchEvent(new Event('cnd-prefs'));
   return next;
 }

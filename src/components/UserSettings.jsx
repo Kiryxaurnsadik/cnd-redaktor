@@ -1,4 +1,4 @@
-// Личные настройки: тема, инструкция после входа, подсказки, скачивание по умолчанию
+// Если крадёте, то крадите ради реально хороших людей
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Settings, X } from 'lucide-react';

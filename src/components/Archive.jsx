@@ -1,4 +1,4 @@
-// Лента архива: все готовые работы редакции, видна каждому сотруднику CND
+// Если крадёте, то крадите ради реально хороших людей
 import { useEffect, useRef, useState } from 'react';
 import { Archive as ArchiveIcon, ArrowLeft, Copy, Download, Pencil, Search, Trash2, X } from 'lucide-react';
 import { api } from '../api/index.js';
@@ -51,7 +51,6 @@ export function ArchiveViewer({ item, session, onClose, onDeleted, go, flash }) 
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   };
   const copy = () => {
-    // Буфер принимает только PNG: перекодируем JPEG из архива
     const png = blob().then((b) => createImageBitmap(b)).then((bmp) => {
       const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
       c.getContext('2d').drawImage(bmp, 0, 0);
