@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { BookOpen, X } from 'lucide-react';
 import { usePrefs } from '../lib/prefs.js';
+import { CONTROL_MODES, keymapFor } from '../lib/controls.js';
 const HelpBuddy = lazy(() => import('./HelpBuddy.jsx'));
 import { ADAMS_THANKS, CREDIT } from '../lib/brand.js';
 import { canManage, isAdmin } from '../lib/util.js';
@@ -153,21 +154,37 @@ const SECTIONS = [
   },
   {
     key: 'keys', who: 'all', title: 'Горячие клавиши', body: () => (
-      <div className="keys">
-        <span><kbd>Ctrl</kbd>+<kbd>Z</kbd></span><span>Отменить</span>
-        <span><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></span><span>Повторить</span>
-        <span><kbd>Ctrl</kbd>+<kbd>D</kbd></span><span>Дублировать</span>
-        <span><kbd>Delete</kbd></span><span>Удалить выделенное</span>
-        <span><kbd>Enter</kbd></span><span>Редактировать выделенный текст</span>
-        <span><kbd>←↑→↓</kbd></span><span>Сдвиг на 1 px, с <kbd>Shift</kbd> на 10 px</span>
-        <span><kbd>Ctrl</kbd>+<kbd>V</kbd></span><span>Вставить скриншот или текст</span>
-        <span><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd></span><span>Копировать картинку в буфер</span>
-        <span><kbd>Esc</kbd></span><span>Снять выделение</span>
-        <span><kbd>F1</kbd></span><span>Эта инструкция</span>
-      </div>
+      <KeysHelp />
     ),
   },
 ];
+
+function KeysHelp() {
+  const [p] = usePrefs();
+  const mode = CONTROL_MODES[p.controls] ? p.controls : 'canva';
+  const kb = (t) => t.split('+').map((k, i) => <span key={i}>{i > 0 && '+'}<kbd>{k}</kbd></span>);
+  return (
+    <>
+      <p className="small muted">Сейчас выбрано управление «{CONTROL_MODES[mode].label}». Поменять можно в «Мои настройки» → «Управление».</p>
+      <div className="keys">
+        <span>{kb('Ctrl+Z')}</span><span>Отменить</span>
+        <span>{kb('Ctrl+Shift+Z')}</span><span>Повторить</span>
+        <span><kbd>Delete</kbd></span><span>Удалить выделенное</span>
+        <span><kbd>Enter</kbd></span><span>Редактировать выделенный текст</span>
+        <span><kbd>←↑→↓</kbd></span><span>Сдвиг на 1 px, с <kbd>Shift</kbd> на 10 px</span>
+        <span>{kb('Shift')}+клик</span><span>Выбрать несколько; рамкой мышью тоже можно</span>
+        <span>{kb('Ctrl+V')}</span><span>Вставить скриншот или текст</span>
+        <span>{kb('Ctrl+Shift+C')}</span><span>Копировать картинку в буфер</span>
+        <span><kbd>Esc</kbd></span><span>Снять выделение</span>
+        <span><kbd>F1</kbd></span><span>Эта инструкция</span>
+        {keymapFor(mode).map(([id, , text]) => {
+          const [k, ...rest] = text.split(' — ');
+          return [<span key={`${id}k${k}`}>{k.split('…').length > 1 ? <kbd>{k}</kbd> : kb(k)}</span>, <span key={`${id}t${k}`}>{rest.join(' — ')}</span>];
+        })}
+      </div>
+    </>
+  );
+}
 
 const allowed = (who, role) => who === 'all' || (who === 'manage' && canManage(role)) || (who === 'admin' && isAdmin(role));
 

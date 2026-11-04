@@ -7,7 +7,8 @@ import { OFFICIAL_TEMPLATES } from '../lib/templates.js';
 import { SKIN_SOURCES, fetchSkinByNick, renderFlatBody, renderHead, validateSkin } from '../lib/skin.js';
 import { fileToDataURL } from '../lib/util.js';
 import { docThumb } from '../lib/thumb.js';
-import { Box, Circle, Contrast, Frame, Image as ImageIcon, Minus, MoreHorizontal, RectangleHorizontal, Search, Square, Trash2, Upload, UserRound } from 'lucide-react';
+import { IMPORT_ACCEPT, importKind, openPdf, pdfThumb, readDocx, readPdfPage, readPsd } from '../lib/importers.js';
+import { Box, Circle, FileUp, Contrast, Frame, Image as ImageIcon, Minus, MoreHorizontal, RectangleHorizontal, Search, Square, Trash2, Upload, UserRound } from 'lucide-react';
 
 export const TEXT_PRESETS = [
   { label: 'Заголовок', el: { text: 'Заголовок', fontFamily: 'Montserrat', fontSize: 96, fontStyle: 'bold', width: 900 } },
@@ -37,7 +38,63 @@ export function TextPanel({ add }) {
   );
 }
 
-export function PhotosPanel({ addImageFile, uploads, addImage }) {
+function ImportBox({ importResult, docW, pendingImport, clearPending }) {
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const [pdf, setPdf] = useState(null);
+  const [thumbs, setThumbs] = useState({});
+  const [withText, setWithText] = useState(false);
+  const [psdText, setPsdText] = useState(true);
+  const run = async (file) => {
+    setErr(''); setPdf(null); setThumbs({});
+    const kind = importKind(file);
+    if (!kind) { setErr('Нужен файл .psd, .pdf или .docx'); return; }
+    if (file.size > 80 * 1024 * 1024) { setErr('Файл больше 80 МБ'); return; }
+    try {
+      if (kind === 'psd') { setBusy('Читаю слои PSD…'); importResult(await readPsd(file, { editableText: psdText })); }
+      else if (kind === 'docx') { setBusy('Читаю документ…'); importResult(await readDocx(file, { docW })); }
+      else {
+        setBusy('Открываю PDF…');
+        const p = await openPdf(file);
+        if (p.pages === 1) { setBusy('Рисую страницу…'); importResult(await readPdfPage(p.pdf, 1, { withText })); }
+        else {
+          setPdf(p);
+          for (let i = 1; i <= Math.min(p.pages, 40); i++) { const t = await pdfThumb(p.pdf, i); setThumbs((o) => ({ ...o, [i]: t })); }
+        }
+      }
+    } catch (e) { setErr(`Не получилось открыть файл: ${e.message || e}`); }
+    setBusy('');
+  };
+  useEffect(() => { if (pendingImport) { const f = pendingImport; clearPending(); run(f); } }, [pendingImport]);
+  const page = async (n) => {
+    setBusy(`Рисую страницу ${n}…`); setErr('');
+    try { importResult(await readPdfPage(pdf.pdf, n, { withText })); } catch (e) { setErr(e.message || String(e)); }
+    setBusy('');
+  };
+  return (
+    <div className="import-box">
+      <h4>Импорт PSD, PDF и DOCX</h4>
+      <button style={{ width: '100%' }} disabled={!!busy} onClick={() => document.getElementById('import-file').click()}><FileUp size={16} /> {busy || 'Открыть файл'}</button>
+      <input id="import-file" type="file" accept={IMPORT_ACCEPT} hidden onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) run(f); }} />
+      <label className="check"><input type="checkbox" checked={psdText} onChange={(e) => setPsdText(e.target.checked)} /> PSD: текстовые слои — редактируемым текстом</label>
+      <label className="check"><input type="checkbox" checked={withText} onChange={(e) => setWithText(e.target.checked)} /> PDF: добавить текст страницы отдельным блоком</label>
+      {err && <p className="small error">{err}</p>}
+      {pdf && (
+        <>
+          <p className="small muted">В PDF страниц: {pdf.pages}. Нажмите на нужную, чтобы добавить её.</p>
+          <div className="thumbs pdf-pages">
+            {Array.from({ length: Math.min(pdf.pages, 40) }, (_, i) => i + 1).map((n) => (
+              <button key={n} className="t" title={`Страница ${n}`} disabled={!!busy} onClick={() => page(n)} style={thumbs[n] ? { backgroundImage: `url(${thumbs[n]})` } : undefined}><span>{n}</span></button>
+            ))}
+          </div>
+        </>
+      )}
+      <p className="small muted">PSD разбирается на слои, DOCX — на заголовки, текст и картинки, страница PDF вставляется картинкой. Файл можно и просто перетащить на холст.</p>
+    </div>
+  );
+}
+
+export function PhotosPanel({ addImageFile, uploads, addImage, importResult, docW, pendingImport, clearPending }) {
   return (
     <>
       <h3>Фото и скриншоты</h3>
@@ -48,7 +105,7 @@ export function PhotosPanel({ addImageFile, uploads, addImage }) {
       <div className="thumbs">
         {uploads.map((u, i) => <div key={i} className="t" style={{ backgroundImage: `url(${u})`, imageRendering: 'auto' }} onClick={() => addImage(u)} />)}
       </div>
-      <p className="small muted">Импорт PSD, PDF и DOCX появится в следующем этапе.</p>
+      {importResult && <ImportBox importResult={importResult} docW={docW} pendingImport={pendingImport} clearPending={clearPending} />}
     </>
   );
 }

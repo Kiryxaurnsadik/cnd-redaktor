@@ -8,6 +8,11 @@ const loaded = new Set();
 
 const emit = () => window.dispatchEvent(new Event('cnd-fonts'));
 
+const LOCAL_FONTS = [['Minecraft', './fonts/minecraft.ttf'], ['Minecraft Ten', './fonts/minecraft-ten.ttf']];
+export const localFontsReady = typeof FontFace === 'undefined' ? Promise.resolve() : Promise.all(LOCAL_FONTS.map(async ([family, url]) => {
+  try { const f = new FontFace(family, `url(${url})`); await f.load(); document.fonts.add(f); } catch {}
+})).then(emit);
+
 async function register(f) {
   if (loaded.has(f.family)) return;
   try {

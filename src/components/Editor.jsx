@@ -10,6 +10,7 @@ import CanvasStage from './CanvasStage.jsx';
 import PropsPanel from './PropsPanel.jsx';
 import SkinPoser from './SkinPoser.jsx';
 import { BgRemoveModal, UpscaleModal } from './ImageTools.jsx';
+import { importKind } from '../lib/importers.js';
 import { BrandPanel, PhotosPanel, TemplatesPanel, TextPanel } from './Panels.jsx';
 import ElementsPanel from './ElementsPanel.jsx';
 import { docThumb } from '../lib/thumb.js';
@@ -17,6 +18,7 @@ import { elName } from './PropsPanel.jsx';
 import { BRAND } from '../lib/brand.js';
 import { WATERMARK_STYLES, applyWatermark } from '../lib/watermark.js';
 import { loadCustomFonts } from '../lib/fonts.js';
+import { matchAction, useControls } from '../lib/controls.js';
 import { usePrefs } from '../lib/prefs.js';
 import { isWebhook, postToDiscord } from '../lib/discord.js';
 import { withIds } from '../lib/templates.js';
@@ -32,7 +34,11 @@ export default function Editor({ session, left, go, open }) {
   const [title, setTitle] = useState(open.title || 'Без названия');
   const [workId, setWorkId] = useState(open.workId || null);
   const [author, setAuthor] = useState(session.nickname);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedIdRaw] = useState(null);
+  const [multi, setMulti] = useState([]);
+  const setSelectedId = (id) => { setMulti([]); setSelectedIdRaw(id); };
+  const ctl = useControls();
+  const styleClip = useRef(null);
   const [imageTool, setImageTool] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [tab, setTab] = useState('text');
@@ -41,6 +47,7 @@ export default function Editor({ session, left, go, open }) {
   const [zoom, setZoom] = useState(1);
   const [fit, setFit] = useState(0.3);
   const [uploads, setUploads] = useState([]);
+  const [pendingImport, setPendingImport] = useState(null);
   const [poserSkin, setPoserSkin] = useState(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [prefs, savePrefs] = usePrefs();
@@ -137,7 +144,29 @@ export default function Editor({ session, left, go, open }) {
 
   const update = useCallback((id, patch) => commit((d) => ({ ...d, elements: d.elements.map((e) => (e.id === id ? { ...e, ...patch } : e)) })), [commit]);
   const updateDoc = (patch) => commit((d) => ({ ...d, ...patch }));
-  const selected = doc?.elements.find((e) => e.id === selectedId) || null;
+  const updateMany = (patches) => commit((d) => ({ ...d, elements: d.elements.map((e) => (patches[e.id] ? { ...e, ...patches[e.id] } : e)) }));
+  const selIds = multi.length > 1 ? multi : selectedId ? [selectedId] : [];
+  const isMulti = selIds.length > 1;
+  const selected = isMulti ? null : (doc?.elements.find((e) => e.id === selectedId) || null);
+  const selectIds = (ids) => {
+    const u = [...new Set(ids)].filter((id) => doc.elements.some((e) => e.id === id));
+    if (u.length <= 1) { setMulti([]); setSelectedIdRaw(u[0] || null); } else { setMulti(u); setSelectedIdRaw(u[u.length - 1]); }
+  };
+  const groupOf = (id) => { const el = doc.elements.find((e) => e.id === id); return el?.groupId ? doc.elements.filter((e) => e.groupId === el.groupId).map((e) => e.id) : [id]; };
+  const pick = (id, add) => {
+    if (id !== editingId) setEditingId(null);
+    if (!id) { if (!add) selectIds([]); return; }
+    const ids = groupOf(id);
+    if (add) {
+      const has = ids.every((x) => selIds.includes(x));
+      selectIds(has ? selIds.filter((x) => !ids.includes(x)) : [...selIds, ...ids]);
+    } else if (isMulti && selIds.includes(id)) { /* keep */ } else selectIds(ids);
+  };
+  const boxOf = (id) => {
+    const el = doc.elements.find((e) => e.id === id);
+    const node = stageApi.current?.stage()?.findOne(`#${id}`);
+    return node ? node.getClientRect({ relativeTo: node.getLayer() }) : { x: el.x, y: el.y, width: el.width || 0, height: el.height || 0 };
+  };
 
   const add = (spec) => {
     const items = Array.isArray(spec) ? spec : [spec];
@@ -176,7 +205,119 @@ export default function Editor({ session, left, go, open }) {
     await addImage(src);
   };
 
+  const importResult = (res) => {
+    if (!res?.elements?.length) { flash('В файле не нашлось слоёв для импорта'); return; }
+    const empty = !doc.elements.length;
+    let k = 1, ox = 0, oy = 0, patch = {};
+    if (res.flow) {
+      if (empty && res.height > doc.height) patch = { height: Math.round(res.height) };
+      else if (!empty) { const top = Math.min(...res.elements.map((e) => e.y)); oy = -top + 40; }
+    } else if (empty) {
+      const s = Math.min(1, 4000 / Math.max(res.width, res.height));
+      k = s; patch = { width: Math.round(res.width * s), height: Math.round(res.height * s) };
+    } else {
+      k = Math.min(1, (doc.width * 0.9) / res.width, (doc.height * 0.9) / res.height);
+      ox = (doc.width - res.width * k) / 2; oy = (doc.height - res.height * k) / 2;
+    }
+    const g = res.elements.length > 1 ? uid() : undefined;
+    const created = res.elements.map((e) => {
+      const { blend, ...rest } = e;
+      const c = { rotation: 0, ...rest, ...(blend ? { blend } : {}), id: uid(), groupId: empty ? undefined : g, x: Math.round(e.x * k + ox), y: Math.round(e.y * k + oy) };
+      if (c.width) c.width = Math.round(c.width * k);
+      if (c.height) c.height = Math.round(c.height * k);
+      if (c.fontSize) c.fontSize = Math.max(6, Math.round(c.fontSize * k));
+      return c;
+    });
+    commit((d) => ({ ...d, ...patch, elements: [...d.elements, ...created] }));
+    selectIds(created.map((c) => c.id));
+    const what = { psd: 'PSD', pdf: 'PDF', docx: 'DOCX' }[res.kind] || 'Файл';
+    flash(`${what}: добавлено слоёв — ${created.length}${res.skipped ? `, пропущено пустых — ${res.skipped}` : ''}${patch.width ? '. Размер дизайна взят из файла' : ''}`);
+  };
+
+  const multiActions = {
+    removeSel: () => { const ids = new Set(selIds); commit((d) => ({ ...d, elements: d.elements.filter((e) => !ids.has(e.id)) })); selectIds([]); },
+    duplicateSel: () => {
+      const map = {}; const copies = [];
+      doc.elements.forEach((e) => { if (selIds.includes(e.id)) { const c = { ...structuredClone(e), id: uid(), x: e.x + 30, y: e.y + 30, locked: false }; if (e.groupId) { map[e.groupId] ||= uid(); c.groupId = map[e.groupId]; } copies.push(c); } });
+      commit((d) => ({ ...d, elements: [...d.elements, ...copies] })); selectIds(copies.map((c) => c.id));
+    },
+    group: () => { if (selIds.length < 2) return; const g = uid(); updateMany(Object.fromEntries(selIds.map((id) => [id, { groupId: g }]))); flash('Сгруппировано: теперь двигается вместе'); },
+    ungroup: () => { const ids = selIds.filter((id) => doc.elements.find((e) => e.id === id)?.groupId); if (!ids.length) return; updateMany(Object.fromEntries(ids.map((id) => [id, { groupId: undefined }]))); flash('Группа разобрана'); },
+    alignSel: (where) => {
+      if (selIds.length < 2) { actions.align(where); return; }
+      const boxes = selIds.map((id) => [id, boxOf(id)]);
+      const L = Math.min(...boxes.map(([, b]) => b.x)), T = Math.min(...boxes.map(([, b]) => b.y));
+      const Rr = Math.max(...boxes.map(([, b]) => b.x + b.width)), B = Math.max(...boxes.map(([, b]) => b.y + b.height));
+      const patches = {};
+      boxes.forEach(([id, b]) => {
+        const el = doc.elements.find((e) => e.id === id);
+        const dx = where === 'left' ? L - b.x : where === 'right' ? Rr - b.x - b.width : where === 'hcenter' ? (L + Rr) / 2 - b.x - b.width / 2 : 0;
+        const dy = where === 'top' ? T - b.y : where === 'bottom' ? B - b.y - b.height : where === 'vcenter' ? (T + B) / 2 - b.y - b.height / 2 : 0;
+        patches[id] = { x: Math.round(el.x + dx), y: Math.round(el.y + dy) };
+      });
+      updateMany(patches);
+    },
+    distribute: (axis) => {
+      if (selIds.length < 3) { flash('Для распределения выберите хотя бы 3 элемента'); return; }
+      const P = axis === 'h' ? ['x', 'width'] : ['y', 'height'];
+      const boxes = selIds.map((id) => [id, boxOf(id)]).sort((a, b) => a[1][P[0]] - b[1][P[0]]);
+      const start = boxes[0][1][P[0]]; const end = Math.max(...boxes.map(([, b]) => b[P[0]] + b[P[1]]));
+      const gap = (end - start - boxes.reduce((s2, [, b]) => s2 + b[P[1]], 0)) / (boxes.length - 1);
+      let cur = start; const patches = {};
+      boxes.forEach(([id, b]) => { const el = doc.elements.find((e) => e.id === id); patches[id] = { [P[0]]: Math.round(el[P[0]] + cur - b[P[0]]) }; cur += b[P[1]] + gap; });
+      updateMany(patches);
+    },
+    autoLayout: (dir, gap = 24, alignCross = 'start') => {
+      if (selIds.length < 2) return;
+      const P = dir === 'row' ? ['x', 'width', 'y', 'height'] : ['y', 'height', 'x', 'width'];
+      const boxes = selIds.map((id) => [id, boxOf(id)]).sort((a, b) => a[1][P[0]] - b[1][P[0]]);
+      let cur = boxes[0][1][P[0]]; const cross = Math.min(...boxes.map(([, b]) => b[P[2]]));
+      const crossEnd = Math.max(...boxes.map(([, b]) => b[P[2]] + b[P[3]]));
+      const patches = {};
+      boxes.forEach(([id, b]) => {
+        const el = doc.elements.find((e) => e.id === id);
+        const c = alignCross === 'center' ? cross + (crossEnd - cross - b[P[3]]) / 2 : alignCross === 'end' ? crossEnd - b[P[3]] : cross;
+        patches[id] = { [P[0]]: Math.round(el[P[0]] + cur - b[P[0]]), [P[2]]: Math.round(el[P[2]] + c - b[P[2]]) };
+        cur += b[P[1]] + gap;
+      });
+      updateMany(patches);
+    },
+    tidy: (gap = 24) => {
+      if (selIds.length < 2) return;
+      const boxes = selIds.map((id) => [id, boxOf(id)]).sort((a, b) => a[1].y - b[1].y || a[1].x - b[1].x);
+      const cols = Math.ceil(Math.sqrt(boxes.length));
+      const cw = Math.max(...boxes.map(([, b]) => b.width)), ch = Math.max(...boxes.map(([, b]) => b.height));
+      const x0 = Math.min(...boxes.map(([, b]) => b.x)), y0 = Math.min(...boxes.map(([, b]) => b.y));
+      const patches = {};
+      boxes.forEach(([id, b], i) => { const el = doc.elements.find((e) => e.id === id); const cx = x0 + (i % cols) * (cw + gap), cy = y0 + Math.floor(i / cols) * (ch + gap); patches[id] = { x: Math.round(el.x + cx - b.x), y: Math.round(el.y + cy - b.y) }; });
+      updateMany(patches);
+    },
+    setForSel: (patch) => updateMany(Object.fromEntries(selIds.map((id) => [id, patch]))),
+    copyStyle: () => {
+      const src = doc.elements.find((e) => e.id === selectedId); if (!src) return;
+      const KEYS = ['fill', 'stroke', 'strokeWidth', 'gradient', 'shadow', 'opacity', 'blend', 'fx', 'cornerRadius', 'fontFamily', 'fontSize', 'fontStyle', 'textDecoration', 'lineHeight', 'letterSpacing', 'align', 'textStroke', 'textStrokeWidth', 'frameStroke', 'frameStrokeWidth', 'dash'];
+      styleClip.current = Object.fromEntries(KEYS.filter((k) => src[k] !== undefined).map((k) => [k, structuredClone(src[k])]));
+      flash('Стиль скопирован. Ctrl+Alt+V — вставить на другой элемент');
+    },
+    pasteStyle: () => {
+      const st = styleClip.current; if (!st || !selIds.length) return;
+      const TEXT_ONLY = ['fontFamily', 'fontSize', 'fontStyle', 'textDecoration', 'lineHeight', 'letterSpacing', 'align', 'textStroke', 'textStrokeWidth'];
+      updateMany(Object.fromEntries(selIds.map((id) => { const el = doc.elements.find((e) => e.id === id); const p2 = { ...st }; if (el.type !== 'text') TEXT_ONLY.forEach((k) => delete p2[k]); return [id, p2]; })));
+      flash('Стиль вставлен');
+    },
+    docColors: (ids) => {
+      const set2 = new Map();
+      doc.elements.filter((e) => !ids || ids.includes(e.id)).forEach((e) => ['fill', 'stroke', 'textStroke', 'frameStroke'].forEach((k) => { const c = e[k]; if (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) set2.set(c.toLowerCase(), (set2.get(c.toLowerCase()) || 0) + 1); }));
+      return [...set2.entries()].sort((a, b) => b[1] - a[1]).map(([c]) => c).slice(0, 16);
+    },
+    replaceColor: (from, to, ids) => commit((d) => ({ ...d, elements: d.elements.map((e) => {
+      if (ids && !ids.includes(e.id)) return e;
+      const p2 = {}; ['fill', 'stroke', 'textStroke', 'frameStroke'].forEach((k) => { if (typeof e[k] === 'string' && e[k].toLowerCase() === from) p2[k] = to; });
+      return Object.keys(p2).length ? { ...e, ...p2 } : e;
+    }) })),
+  };
   const actions = {
+    ...multiActions,
     cropping: !!selected && editingId === selected.id,
     toggleCrop: () => { if (!selected) return; if (editingId === selected.id) { setEditingId(null); return; } if (!selected.crop) update(selected.id, { crop: { x: 0.5, y: 0.5, zoom: 1 } }); setEditingId(selected.id); },
     remove: () => { if (!selected) return; commit((d) => ({ ...d, elements: d.elements.filter((e) => e.id !== selected.id) })); setSelectedId(null); },
@@ -262,9 +403,21 @@ export default function Editor({ session, left, go, open }) {
       if (mod && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
       if (mod && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); redo(); return; }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'c') { e.preventDefault(); copyToClipboard(); return; }
-      if (typing || !selected) return;
+      if (typing) return;
+      const act = matchAction(ctl.mode, e);
+      if (act && runShortcut(act)) { e.preventDefault(); return; }
+      if (isMulti) {
+        if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); actions.removeSel(); }
+        else if (e.key === 'Escape') selectIds([]);
+        else if (e.key.startsWith('Arrow')) {
+          e.preventDefault(); const s2 = e.shiftKey ? 10 : 1;
+          const dx = e.key === 'ArrowLeft' ? -s2 : e.key === 'ArrowRight' ? s2 : 0; const dy = e.key === 'ArrowUp' ? -s2 : e.key === 'ArrowDown' ? s2 : 0;
+          updateMany(Object.fromEntries(selIds.map((id) => { const el = doc.elements.find((x) => x.id === id); return [id, { x: el.x + dx, y: el.y + dy }]; })));
+        }
+        return;
+      }
+      if (!selected) return;
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); actions.remove(); }
-      else if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); actions.duplicate(); }
       else if (e.key === 'Escape') { if (editingId) setEditingId(null); else setSelectedId(null); }
       else if (e.key.startsWith('Arrow') && !selected.locked) {
         e.preventDefault(); const s = e.shiftKey ? 10 : 1;
@@ -282,6 +435,40 @@ export default function Editor({ session, left, go, open }) {
     window.addEventListener('keydown', onKey); window.addEventListener('paste', onPaste);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('paste', onPaste); };
   });
+
+  function runShortcut(act) {
+    const base = { opacity: 1, rotation: 0 };
+    const sel = selIds.length;
+    const one = selected;
+    switch (act) {
+      case 'addText': add({ ...base, type: 'text', text: 'Новый текст', fontFamily: 'Inter', fontSize: 64, width: 600, fill: '#111111', align: 'left', fontStyle: 'bold', lineHeight: 1.2 }); return true;
+      case 'addRect': add({ ...base, type: 'rect', width: 400, height: 260, fill: '#0B7CFC', cornerRadius: 0 }); return true;
+      case 'addEllipse': add({ ...base, type: 'ellipse', width: 300, height: 300, fill: '#0B7CFC' }); return true;
+      case 'addLine': add({ ...base, type: 'line', points: [0, 0, 600, 0], stroke: '#111111', strokeWidth: 4 }); return true;
+      case 'duplicate': if (!sel) return false; isMulti ? actions.duplicateSel() : actions.duplicate(); return true;
+      case 'group': if (sel < 2) return false; actions.group(); return true;
+      case 'ungroup': if (!sel) return false; actions.ungroup(); return true;
+      case 'forward': case 'backward': case 'front': case 'back': if (!one) return false; actions.order({ forward: 'up', backward: 'down', front: 'top', back: 'bottom' }[act]); return true;
+      case 'hide': if (!sel) return false; actions.setForSel({ visible: false }); selectIds([]); flash('Скрыто. Вернуть — глаз в списке слоёв'); return true;
+      case 'lock': if (!sel) return false; { const locked = !doc.elements.find((e) => e.id === selIds[0])?.locked; actions.setForSel({ locked }); flash(locked ? 'Закреплено' : 'Откреплено'); } return true;
+      case 'selectAll': selectIds(doc.elements.filter((e) => e.visible !== false && !e.locked).map((e) => e.id)); return true;
+      case 'copyStyle': if (!selectedId) return false; actions.copyStyle(); return true;
+      case 'pasteStyle': if (!sel) return false; actions.pasteStyle(); return true;
+      case 'alignLeft': case 'alignRight': case 'alignTop': case 'alignBottom': case 'alignH': case 'alignV':
+        if (!sel) return false; actions.alignSel({ alignLeft: 'left', alignRight: 'right', alignTop: 'top', alignBottom: 'bottom', alignH: 'hcenter', alignV: 'vcenter' }[act]); return true;
+      case 'distH': actions.distribute('h'); return true;
+      case 'distV': actions.distribute('v'); return true;
+      case 'autoLayout': if (sel < 2) return false; { const bs = selIds.map(boxOf); const wide = Math.max(...bs.map((b) => b.x + b.width)) - Math.min(...bs.map((b) => b.x)); const tall = Math.max(...bs.map((b) => b.y + b.height)) - Math.min(...bs.map((b) => b.y)); actions.autoLayout(wide > tall ? 'row' : 'column'); } return true;
+      case 'tidy': actions.tidy(); return true;
+      case 'zoomIn': setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2))); return true;
+      case 'zoomOut': setZoom((z) => Math.max(0.25, +(z - 0.25).toFixed(2))); return true;
+      case 'zoomFit': setZoom(1); return true;
+      case 'zoom100': setZoom(Math.max(0.1, 1 / fit)); return true;
+      default:
+        if (act.startsWith('opacity:') && sel) { const n = Number(act.slice(8)); actions.setForSel({ opacity: n === 0 ? 1 : n / 10 }); return true; }
+        return false;
+    }
+  }
 
   const savingRef = useRef(null);
   const persist = async (extra = {}) => {
@@ -476,7 +663,7 @@ export default function Editor({ session, left, go, open }) {
           {mobile && <SheetHead title={(RAIL.find((r) => r[0] === tab) || [])[2]} onClose={() => setSheet(null)} />}
           {tab === 'templates' && <TemplatesPanel applyTemplate={applyTemplate} />}
           {tab === 'text' && <TextPanel add={add} />}
-          {tab === 'photos' && <PhotosPanel addImageFile={addImageFile} uploads={uploads} addImage={addImage} />}
+          {tab === 'photos' && <PhotosPanel addImageFile={addImageFile} uploads={uploads} addImage={addImage} importResult={importResult} docW={doc.width} pendingImport={pendingImport} clearPending={() => setPendingImport(null)} />}
           {tab === 'elements' && <ElementsPanel add={add} addImage={addImage} flash={flash} openPoser={(skin, mode = 'body') => setPoserSkin({ skin, mode })} />}
           {tab === 'brand' && <BrandPanel addImage={addImage} applyColor={applyColor} applyFont={applyFont} />}
           {tab !== 'photos' && <input id="photo-file" type="file" accept="image/*" hidden onChange={(e) => { [...e.target.files].forEach((f) => addImageFile(f)); e.target.value = ''; }} />}
@@ -487,10 +674,14 @@ export default function Editor({ session, left, go, open }) {
             e.preventDefault();
             const target = stageApi.current?.elementAt(e.clientX, e.clientY);
             const ph = doc.elements.find((x) => x.id === target && isFrame(x));
-            [...e.dataTransfer.files].forEach((f, i) => addImageFile(f, i === 0 && ph ? ph.id : null));
+            const files = [...e.dataTransfer.files];
+            const doc0 = files.find((f) => importKind(f));
+            if (doc0) { setPendingImport(doc0); setTab('photos'); if (mobile) setSheet('drawer'); }
+            files.filter((f) => !importKind(f)).forEach((f, i) => addImageFile(f, i === 0 && ph ? ph.id : null));
           }}>
           <div className="stage-shadow" style={{ position: 'relative' }}>
-            <CanvasStage ref={stageApi} doc={doc} scale={scale} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); if (id !== editingId) setEditingId(null); }}
+            <CanvasStage ref={stageApi} doc={doc} scale={scale} selectedId={selectedId} selectedIds={selIds} onSelect={pick}
+              onChangeMany={updateMany} onMarquee={(ids, add) => selectIds(add ? [...selIds, ...ids.flatMap(groupOf)] : ids.flatMap(groupOf))}
               onChange={update} onEditText={setEditingId} editingId={editingId} fontTick={fontTick} />
             {editingEl?.type === 'text' && <TextOverlay el={editingEl} scale={scale} onDone={(text) => { if (text !== editingEl.text) update(editingEl.id, { text }); setEditingId(null); }} />}
           </div>
@@ -512,7 +703,8 @@ export default function Editor({ session, left, go, open }) {
         )}
         <div className={mobile ? 'sheet props-sheet' : 'props-host'} hidden={mobile && sheet !== 'props'}>
           {mobile && <SheetHead title={selected ? 'Свойства' : 'Лист и слои'} onClose={() => { setSheet(null); if (selected) setSelectedId(null); }} />}
-        <PropsPanel doc={doc} el={selected} update={update} updateDoc={updateDoc} actions={actions} select={setSelectedId} selectedId={selectedId} />
+        <PropsPanel doc={doc} el={selected} update={update} updateDoc={updateDoc} actions={actions} select={setSelectedId} selectedId={selectedId}
+          multi={isMulti ? selIds : null} ctl={ctl} />
         </div>
       </div>
       {imageTool && selected?.type === 'image' && (() => {

@@ -8,12 +8,12 @@ function paint(ctx, e, w, h, ox = 0, oy = 0) {
   if (!g) return e.fill;
   if (g.type === 'radial') {
     const gr = ctx.createRadialGradient(ox + w / 2, oy + h / 2, 0, ox + w / 2, oy + h / 2, Math.max(w, h) / 2);
-    gr.addColorStop(0, g.from); gr.addColorStop(1, g.to); return gr;
+    gr.addColorStop(0, g.from); if (g.mid) gr.addColorStop(0.5, g.mid); gr.addColorStop(1, g.to); return gr;
   }
   const a = ((g.angle || 0) * Math.PI) / 180; const dx = Math.cos(a), dy = Math.sin(a);
   const L = Math.abs((w / 2) * dx) + Math.abs((h / 2) * dy);
   const gr = ctx.createLinearGradient(ox + w / 2 - dx * L, oy + h / 2 - dy * L, ox + w / 2 + dx * L, oy + h / 2 + dy * L);
-  gr.addColorStop(0, g.from); gr.addColorStop(1, g.to); return gr;
+  gr.addColorStop(0, g.from); if (g.mid) gr.addColorStop(0.5, g.mid); gr.addColorStop(1, g.to); return gr;
 }
 
 function shadow(ctx, s) {
@@ -80,7 +80,7 @@ export async function docThumb(doc, key, maxSide = 360) {
   const fonts = new Set(doc.elements.filter((e) => e.type === 'text').map((e) => `${(e.fontStyle || '').includes('italic') ? 'italic ' : ''}${(e.fontStyle || '').includes('bold') ? '700' : '400'} 32px "${e.fontFamily}"`));
   await Promise.all([...fonts].map((f) => document.fonts?.load(f, 'АаЯя Aa').catch(() => {})));
   ctx.scale(k, k);
-  ctx.fillStyle = doc.background || '#fff'; ctx.fillRect(0, 0, doc.width, doc.height);
+  ctx.fillStyle = paint(ctx, { fill: doc.background || '#fff', gradient: doc.gradient }, doc.width, doc.height); ctx.fillRect(0, 0, doc.width, doc.height);
   for (const e of doc.elements) {
     if (e.visible === false) continue;
     ctx.save(); ctx.globalAlpha = e.opacity ?? 1;

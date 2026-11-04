@@ -38,7 +38,7 @@ export function scalePath(d, vb, w, h, flipX = false, flipY = false) {
 export function gradientProps(g, w, h, centered = false) {
   if (!g) return {};
   const ox = centered ? -w / 2 : 0, oy = centered ? -h / 2 : 0;
-  const stops = [0, g.from, 1, g.to];
+  const stops = g.mid ? [0, g.from, 0.5, g.mid, 1, g.to] : [0, g.from, 1, g.to];
   if (g.type === 'radial') {
     const c = { x: ox + w / 2, y: oy + h / 2 };
     return {
@@ -89,3 +89,9 @@ export const FX_PRESETS = [
   { id: 'fade', name: 'Выцветший', fx: { contrast: 80, saturate: 70, brightness: 112 } },
   { id: 'pop', name: 'Сочный', fx: { saturate: 170, contrast: 115 } },
 ];
+
+export function strokeGradientProps(g, w, h) {
+  if (!g) return {};
+  const f = gradientProps({ ...g, type: 'linear' }, w, Math.max(h, 1));
+  return { strokeLinearGradientStartPoint: f.fillLinearGradientStartPoint, strokeLinearGradientEndPoint: f.fillLinearGradientEndPoint, strokeLinearGradientColorStops: f.fillLinearGradientColorStops };
+}

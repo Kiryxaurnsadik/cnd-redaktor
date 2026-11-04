@@ -9,6 +9,7 @@ import ArchivePage from './components/Archive.jsx';
 import { HelpModal } from './components/Help.jsx';
 import { getPrefs } from './lib/prefs.js';
 import { loadCustomFonts } from './lib/fonts.js';
+import { useUiTheme } from './lib/uitheme.js';
 import { formatLeft } from './lib/util.js';
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
   const [screen, setScreen] = useState({ name: 'home' });
   const [helpOpen, setHelpOpen] = useState(false);
   const [offline, setOffline] = useState('');
+  useUiTheme();
 
   const tryRestore = () => {
     setOffline('');

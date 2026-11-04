@@ -148,7 +148,7 @@ export default function ElementsPanel({ add, addImage, flash, openPoser }) {
           spec = { type: 'image', src: c.toDataURL('image/png'), width: Math.min(500, c.width), height: Math.min(500, c.width) * (c.height / c.width) };
         }
       } else if (file.type.startsWith('image/')) {
-        const src = await compressImage(file, 1200, 0.9, file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png');
+        const src = await compressImage(file, 2200, 0.9, file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png');
         const img = await loadImage(src);
         const w = Math.min(500, img.width);
         spec = { type: 'image', src, width: w, height: w * (img.height / img.width) };

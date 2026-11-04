@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SkinViewer } from 'skinview3d';
 import * as THREE from 'three';
-import { ATTACH, DEFAULT_ITEM, DEFAULT_TUNE, ITEMS, disposeItem, makeItem, readItemFile } from '../lib/items.js';
+import { ATTACH, DEFAULT_ITEM, DEFAULT_TUNE, ITEMS, disposeItem, makeItem, poseModel, readItemFile } from '../lib/items.js';
+import { ARMOR_SETS, ARMOR_SLOTS, DEFAULT_ARMOR, buildArmor, readArmorFile, removeArmor } from '../lib/armor.js';
 import { DEFAULT_BODY, TORSO_TYPES, applyBody, resetBody } from '../lib/bodyshape.js';
 import { ADAMS_THANKS } from '../lib/brand.js';
 
@@ -63,13 +64,15 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
   const [model, setModel] = useState('auto-detect');
   const [error, setError] = useState('');
   const [mode, setMode] = useState(initialMode);
-  const [item, setItem] = useState(initialMode === 'head' ? 'none' : DEFAULT_ITEM);
-  const [hand, setHand] = useState(initialMode === 'head' ? 'head' : 'rightArm');
-  const [customItem, setCustomItem] = useState(null);
-  const [tune, setTune] = useState(DEFAULT_TUNE);
+  const [items, setItems] = useState(() => (initialMode === 'head' ? [] : [newItem(DEFAULT_ITEM, 'rightArm')]));
+  const [active, setActive] = useState(0);
+  const [info, setInfo] = useState({});
+  const [playing, setPlaying] = useState(false);
+  const [armor, setArmor] = useState(DEFAULT_ARMOR);
+  const objs = useRef(new Map());
+  const clock = useRef(0);
   const [body, setBody] = useState(DEFAULT_BODY);
   const [limb, setLimb] = useState('rArm');
-  const itemRef = useRef(null);
 
   useEffect(() => {
     const viewer = new SkinViewer({
@@ -108,21 +111,8 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
   useEffect(() => { const v = viewerRef.current; if (v) { applyPose(v.playerObject.skin, pose); redraw(); } }, [pose]);
   useEffect(() => { const v = viewerRef.current; if (v) { applyBody(v.playerObject.skin, body); redraw(); } }, [body]);
 
-  const where = mode === 'head' ? 'head' : hand;
-  useEffect(() => {
-    let alive = true;
-    const v = viewerRef.current; if (!v) return undefined;
-    makeItem(item, customItem, where, DEFAULT_TUNE).then((g) => {
-      if (!alive) { disposeItem(g); return; }
-      const old = itemRef.current;
-      if (old) { old.parent?.remove(old); disposeItem(old); itemRef.current = null; }
-      if (!g) { redraw(); return; }
-      g.userData.base = g.position.clone();
-      v.playerObject.skin[where].add(g); itemRef.current = g; setError('');
-      applyTune(g, tune); redraw();
-    }).catch((e) => setError(e.message || 'Не удалось собрать предмет'));
-    return () => { alive = false; };
-  }, [item, where, customItem, skin, model]);
+  const whereOf = (it) => (mode === 'head' ? 'head' : it.where);
+  const keyOf = (it) => `${it.kind}|${it.custom?.uid || ''}|${it.custom?.grip || ''}|${whereOf(it)}`;
 
   const applyTune = (g, t) => {
     if (!g) return;
@@ -131,12 +121,91 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
     g.rotation.set(t.rx * D, t.ry * D, t.rz * D);
     g.scale.setScalar(t.s || 1);
   };
-  useEffect(() => { applyTune(itemRef.current, tune); redraw(); }, [tune]);
+
+  useEffect(() => {
+    const v = viewerRef.current; if (!v) return;
+    const map = objs.current;
+    const ids = new Set(items.map((it) => it.id));
+    for (const [id, o] of map) {
+      if (!ids.has(id)) { o.g?.parent?.remove(o.g); disposeItem(o.g); map.delete(id); }
+    }
+    items.forEach((it) => {
+      const key = keyOf(it);
+      const o = map.get(it.id);
+      if (o && o.key === key) {
+        if (o.g) { applyTune(o.g, it.tune); if (!playing) poseModel(o.g.userData.model, it.anim, it.time); }
+        return;
+      }
+      if (o?.g) { o.g.parent?.remove(o.g); disposeItem(o.g); }
+      map.set(it.id, { key, g: null });
+      makeItem(it.kind, it.custom, whereOf(it), DEFAULT_TUNE).then((g) => {
+        const cur = map.get(it.id);
+        if (!cur || cur.key !== key) { disposeItem(g); return; }
+        if (!g) { redraw(); return; }
+        g.userData.base = g.position.clone();
+        v.playerObject.skin[whereOf(it)].add(g);
+        cur.g = g; setError('');
+        const latest = itemsRef.current.find((x) => x.id === it.id) || it;
+        applyTune(g, latest.tune);
+        const m = g.userData.model;
+        poseModel(m, latest.anim, latest.time);
+        setInfo((inf) => ({ ...inf, [it.id]: { anims: (m?.animations || []).map((a) => ({ name: a.name, length: a.length })), animTex: !!m?.animTextures?.length } }));
+        redraw();
+      }).catch((e) => { const cur = map.get(it.id); if (cur && cur.key === key) map.delete(it.id); setError(e.message || 'Не удалось собрать предмет'); });
+    });
+    redraw();
+  }, [items, mode, skin, model]);
+  const itemsRef = useRef(items); itemsRef.current = items;
+  useEffect(() => () => { objs.current.forEach((o) => disposeItem(o.g)); objs.current.clear(); }, []);
+
+  useEffect(() => {
+    if (!playing) return undefined;
+    const v = viewerRef.current; if (!v) return undefined;
+    let raf = 0; const start = performance.now() - clock.current * 1000;
+    const tick = () => {
+      const t = (performance.now() - start) / 1000; clock.current = t;
+      itemsRef.current.forEach((it) => { const o = objs.current.get(it.id); if (o?.g) poseModel(o.g.userData.model, it.anim, t); });
+      v.renderPaused = false;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(raf); redraw(); };
+  }, [playing]);
+  const togglePlay = () => {
+    if (playing) { const t = clock.current; setItems((l) => l.map((it) => ({ ...it, time: t }))); }
+    else clock.current = items[active]?.time || 0;
+    setPlaying((p) => !p);
+  };
+
+  useEffect(() => {
+    const v = viewerRef.current; if (!v) return undefined;
+    let alive = true;
+    buildArmor(v.playerObject.skin, armor).then(() => alive && redraw()).catch((e) => setError(e.message || 'Не удалось надеть броню'));
+    return () => { alive = false; };
+  }, [armor, skin, model]);
+  useEffect(() => () => removeArmor(viewerRef.current?.playerObject?.skin), []);
+
+  const cur = items[active] || null;
+  const patchCur = (p) => setItems((l) => l.map((it, i) => (i === active ? { ...it, ...(typeof p === 'function' ? p(it) : p) } : it)));
+  const setTune = (fn) => patchCur((it) => ({ tune: typeof fn === 'function' ? fn(it.tune) : fn }));
+  const tune = cur?.tune || DEFAULT_TUNE;
+  const addItem = () => { setItems((l) => [...l, newItem('camera', mode === 'head' ? 'head' : (l.some((x) => x.where === 'rightArm') ? 'leftArm' : 'rightArm'))]); setActive(items.length); };
+  const removeItem = (i) => { setItems((l) => l.filter((_, j) => j !== i)); setActive((a) => Math.max(0, a >= i ? a - 1 : a)); };
 
   const pickItemFile = async (file) => {
     if (!file) return;
-    try { const it = await readItemFile(file); setCustomItem(it); setItem('custom'); setTune(DEFAULT_TUNE); }
-    catch (e) { setError(e.message || 'Не удалось прочитать предмет'); }
+    try {
+      const it = await readItemFile(file);
+      it.uid = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      if (!items.length) { setItems([{ ...newItem('custom', mode === 'head' ? 'head' : 'rightArm'), custom: it }]); setActive(0); }
+      else patchCur({ kind: 'custom', custom: it, tune: { ...DEFAULT_TUNE }, anim: -1, time: 0 });
+      setError('');
+    } catch (e) { setError(e.message || 'Не удалось прочитать предмет'); }
+  };
+  const pickArmorFile = async (file, layer) => {
+    if (!file) return;
+    try { const url = await readArmorFile(file); setArmor((a) => ({ ...a, [layer === 2 ? 'custom2' : 'custom1']: url })); setError(''); }
+    catch (e) { setError(e.message || 'Не удалось прочитать текстуру'); }
   };
 
   useEffect(() => {
@@ -259,29 +328,53 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
             </details>
 
             <details open className="pgroup">
-              <summary>Предмет</summary>
-              <select value={item} onChange={(e) => { const k = e.target.value; if (k === 'custom' && !customItem) document.getElementById('item-file').click(); setItem(k); setTune(DEFAULT_TUNE); }}>
-                {Object.entries(ITEMS).map(([k, l]) => <option key={k} value={k}>{k === 'custom' && customItem ? `Свой: ${customItem.name}` : l}</option>)}
-              </select>
+              <summary>Предметы</summary>
+              <div className="chips item-chips">
+                {items.map((it, i) => (
+                  <span key={it.id} className={`item-chip ${i === active ? 'on' : ''}`}>
+                    <button onClick={() => setActive(i)}>{it.kind === 'custom' ? (it.custom?.name || 'Свой') : ITEMS[it.kind]}</button>
+                    <button className="x" aria-label="Убрать предмет" title="Убрать" onClick={() => removeItem(i)}>×</button>
+                  </span>
+                ))}
+                <button onClick={addItem}>+ Предмет</button>
+              </div>
+              {!items.length && <p className="small muted" style={{ margin: '4px 0 0' }}>Предметов нет. Нажмите «+ Предмет», можно добавить несколько: в обе руки и на голову.</p>}
               <input id="item-file" type="file" accept=".bbmodel,.png,image/png,application/json" hidden onChange={(e) => { pickItemFile(e.target.files[0]); e.target.value = ''; }} />
-              {item === 'custom' && (
-                <div className="row" style={{ marginTop: 6, gap: 6, flexWrap: 'wrap' }}>
-                  <button className="small" onClick={() => document.getElementById('item-file').click()}>Загрузить другой…</button>
-                  {customItem?.type === 'png' && (
-                    <div className="seg">
-                      <button className={customItem.grip !== 'generated' ? 'on' : ''} onClick={() => setCustomItem({ ...customItem, grip: 'handheld' })} title="Как меч или кирка">Инструмент</button>
-                      <button className={customItem.grip === 'generated' ? 'on' : ''} onClick={() => setCustomItem({ ...customItem, grip: 'generated' })} title="Как яблоко или книга">Предмет</button>
-                    </div>
-                  )}
-                </div>
-              )}
-              {item === 'custom' && <p className="small muted" style={{ margin: '4px 0 0' }}>Модель .bbmodel из Blockbench или PNG предмета из Minecraft (16×16).</p>}
-              {item !== 'none' && mode === 'body' && (
-                <div className="seg" style={{ marginTop: 6 }}>
-                  {Object.entries(ATTACH).map(([k, l]) => <button key={k} className={hand === k ? 'on' : ''} onClick={() => { setHand(k); setTune(DEFAULT_TUNE); }}>{l}</button>)}
-                </div>
-              )}
-              {item !== 'none' && (
+              {cur && (<>
+                <select value={cur.kind} onChange={(e) => { const k = e.target.value; if (k === 'custom' && !cur.custom) { document.getElementById('item-file').click(); return; } patchCur({ kind: k, tune: { ...DEFAULT_TUNE }, anim: -1, time: 0 }); }}>
+                  {Object.entries(ITEMS).filter(([k]) => k !== 'none').map(([k, l]) => <option key={k} value={k}>{k === 'custom' && cur.custom ? `Свой: ${cur.custom.name}` : l}</option>)}
+                </select>
+                {cur.kind === 'custom' && (
+                  <div className="row" style={{ marginTop: 6, gap: 6, flexWrap: 'wrap' }}>
+                    <button className="small" onClick={() => document.getElementById('item-file').click()}>Загрузить другой…</button>
+                    {cur.custom?.type === 'png' && (
+                      <div className="seg">
+                        <button className={cur.custom.grip !== 'generated' ? 'on' : ''} onClick={() => patchCur({ custom: { ...cur.custom, grip: 'handheld' } })} title="Как меч или кирка">Инструмент</button>
+                        <button className={cur.custom.grip === 'generated' ? 'on' : ''} onClick={() => patchCur({ custom: { ...cur.custom, grip: 'generated' } })} title="Как яблоко или книга">Предмет</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {cur.kind === 'custom' && <p className="small muted" style={{ margin: '4px 0 0' }}>Модель .bbmodel из Blockbench (с группами, анимациями и несколькими текстурами) или PNG предмета (16×16).</p>}
+                {mode === 'body' && (
+                  <div className="seg" style={{ marginTop: 6 }}>
+                    {Object.entries(ATTACH).map(([k, l]) => <button key={k} className={cur.where === k ? 'on' : ''} onClick={() => patchCur({ where: k, tune: { ...DEFAULT_TUNE } })}>{l}</button>)}
+                  </div>
+                )}
+                {(!!info[cur.id]?.anims?.length || info[cur.id]?.animTex) && (
+                  <div className="anim-box">
+                    {!!info[cur.id]?.anims?.length && (<>
+                      <label>Анимация из Blockbench</label>
+                      <select value={cur.anim} onChange={(e) => patchCur({ anim: Number(e.target.value), time: 0 })}>
+                        <option value={-1}>Без анимации (как в модели)</option>
+                        {info[cur.id].anims.map((a, i) => <option key={i} value={i}>{a.name}</option>)}
+                      </select>
+                      {cur.anim >= 0 && !playing && <Range label="Кадр анимации" value={cur.time} min={0} max={info[cur.id].anims[cur.anim]?.length || 1} step={0.05} unit=" с" onChange={(t) => patchCur({ time: t })} />}
+                    </>)}
+                    <button className="small" onClick={togglePlay}>{playing ? '❚❚ Стоп (запомнить кадр)' : '▶ Проиграть'}</button>
+                    {info[cur.id]?.animTex && <span className="small muted"> Анимированная текстура тоже двигается.</span>}
+                  </div>
+                )}
                 <details style={{ marginTop: 8 }}>
                   <summary>Положение предмета</summary>
                   <Range label="Вперёд / назад" value={tune.z} min={-12} max={12} step={0.5} unit=" px" onChange={(v) => setTune((t) => ({ ...t, z: v }))} />
@@ -291,9 +384,37 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
                   <Range label="Поворот" value={tune.ry} min={-180} max={180} step={5} unit="°" onChange={(v) => setTune((t) => ({ ...t, ry: v }))} />
                   <Range label="Крен" value={tune.rz} min={-180} max={180} step={5} unit="°" onChange={(v) => setTune((t) => ({ ...t, rz: v }))} />
                   <Range label="Размер" value={tune.s} min={0.3} max={2.5} step={0.05} unit="×" onChange={(v) => setTune((t) => ({ ...t, s: v }))} />
-                  <button className="small" onClick={() => setTune(DEFAULT_TUNE)}>Сбросить положение</button>
+                  <button className="small" onClick={() => setTune({ ...DEFAULT_TUNE })}>Сбросить положение</button>
                 </details>
+              </>)}
+            </details>
+
+            <details className="pgroup">
+              <summary>Броня</summary>
+              {Object.entries(ARMOR_SLOTS).filter(([k]) => mode === 'body' || k === 'helmet').map(([slot, label]) => (
+                <div key={slot} className="armor-row">
+                  <span>{label}</span>
+                  <select value={armor[slot]} onChange={(e) => setArmor((a) => ({ ...a, [slot]: e.target.value }))}>
+                    {Object.entries(ARMOR_SETS).map(([k, st]) => <option key={k} value={k}>{st.label}</option>)}
+                  </select>
+                </div>
+              ))}
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                <button className="small" onClick={() => setArmor((a) => ({ ...a, ...Object.fromEntries(Object.keys(ARMOR_SLOTS).map((k) => [k, 'iron'])) }))}>Весь комплект: железо</button>
+                <button className="small" onClick={() => setArmor((a) => ({ ...a, ...Object.fromEntries(Object.keys(ARMOR_SLOTS).map((k) => [k, 'none'])) }))}>Снять всё</button>
+              </div>
+              {Object.keys(ARMOR_SLOTS).some((k) => armor[k] === 'leather') && (
+                <div className="light-row"><b>Цвет кожи</b><input type="color" value={armor.color} onChange={(e) => setArmor((a) => ({ ...a, color: e.target.value }))} /></div>
               )}
+              {Object.keys(ARMOR_SLOTS).some((k) => armor[k] === 'custom') && (<>
+                <p className="small muted" style={{ margin: '6px 0 0' }}>Текстуры как в ресурспаке Minecraft: слой 1 (layer_1) — шлем, нагрудник и ботинки; слой 2 (layer_2) — поножи. Размер 64×32 или больше.</p>
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                  <button className="small" onClick={() => document.getElementById('armor-1').click()}>{armor.custom1 ? 'Слой 1 ✓' : 'Загрузить слой 1…'}</button>
+                  <button className="small" onClick={() => document.getElementById('armor-2').click()}>{armor.custom2 ? 'Слой 2 ✓' : 'Загрузить слой 2…'}</button>
+                </div>
+                <input id="armor-1" type="file" accept="image/png" hidden onChange={(e) => { pickArmorFile(e.target.files[0], 1); e.target.value = ''; }} />
+                <input id="armor-2" type="file" accept="image/png" hidden onChange={(e) => { pickArmorFile(e.target.files[0], 2); e.target.value = ''; }} />
+              </>)}
             </details>
 
             {mode === 'body' && (
@@ -352,6 +473,12 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
       </div>
     </div>
   );
+}
+
+let itemSeq = 0;
+function newItem(kind, where) {
+  itemSeq += 1;
+  return { id: `it${Date.now().toString(36)}${itemSeq}`, kind, custom: null, where, tune: { ...DEFAULT_TUNE }, anim: -1, time: 0 };
 }
 
 function trim(src, filter) {

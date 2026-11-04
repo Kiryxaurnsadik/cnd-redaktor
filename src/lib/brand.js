@@ -19,6 +19,8 @@ export const BRAND_COLORS = [
 export const FONTS = [
   'Inter', 'Montserrat', 'Rubik', 'Unbounded', 'Oswald', 'Russo One', 'PT Serif',
   'Old Standard TT', 'Playfair Display', 'Merriweather', 'Roboto Slab', 'Lobster', 'Press Start 2P', 'Manrope', 'Comfortaa',
+  'Minecraft', 'Minecraft Ten',
+  'Roboto', 'Open Sans', 'Noto Sans', 'Raleway', 'Nunito', 'Ubuntu', 'Fira Sans', 'Exo 2', 'Jost', 'Philosopher', 'Ruslan Display', 'Pacifico', 'Caveat', 'Marck Script', 'Neucha', 'Bad Script', 'Amatic SC', 'Cormorant Garamond', 'Yeseva One', 'Kelly Slab', 'Stalinist One', 'Podkova', 'Tenor Sans', 'Alice', 'Pangolin', 'Rubik Mono One', 'Seymour One', 'PT Sans', 'PT Mono', 'JetBrains Mono', 'Golos Text', 'Onest', 'Play', 'Prosto One', 'Days One', 'Underdog', 'Lora', 'Spectral', 'Arsenal',
 ];
 
 export const CREDIT = { author: 'Kirill_Burnside', faction: 'фракции СМИ', server: 'AtlantWorld' };

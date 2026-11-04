@@ -1,8 +1,9 @@
 // Если крадёте, то крадите ради реально хороших людей
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import Konva from 'konva';
 import { Stage, Layer, Rect, Text, Image as KImage, Ellipse, Line, Group, Transformer, Path, Wedge, Arc, Circle } from 'react-konva';
 const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
-import { cssFilter, gradientProps, scalePath, shadowProps } from '../lib/pathscale.js';
+import { cssFilter, gradientProps, scalePath, shadowProps, strokeGradientProps } from '../lib/pathscale.js';
 import { maskPath } from '../lib/elements.js';
 
 function useImg(src) {
@@ -48,18 +49,36 @@ export function cropBox(el, iw, ih) {
   return { fw, fh, ox: (fw - W) * (c.x ?? 0.5), oy: (fh - H) * (c.y ?? 0.5) };
 }
 
-function ImageEl({ el, common, cropping, onCrop }) {
+function TextEl({ el, common, hidden, onEdit, sh }) {
+  const ref = useRef(null);
+  const [h, setH] = useState(el.fontSize * 1.2);
+  useLayoutEffect(() => { const n = ref.current; if (n) { const nh = n.height(); if (Math.abs(nh - h) > 0.5) setH(nh); } });
+  const grad = el.gradient ? gradientProps(el.gradient, el.width, h) : {};
+  return <Text ref={ref} {...common} text={el.text} width={el.width} fontSize={el.fontSize} fontFamily={el.fontFamily}
+    fontStyle={el.fontStyle || 'normal'} fill={el.fill} {...grad} align={el.align} lineHeight={el.lineHeight || 1.2}
+    letterSpacing={el.letterSpacing || 0} textDecoration={el.textDecoration || ''} wrap="word"
+    stroke={el.textStroke || undefined} strokeWidth={el.textStroke ? el.textStrokeWidth || 2 : 0} fillAfterStrokeEnabled
+    visible={!hidden} onDblClick={onEdit} onDblTap={onEdit} {...sh} />;
+}
+
+function cacheRatio(img, el, scale) {
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  const want = Math.max(img.width / Math.max(1, el.width), scale * dpr, 2);
+  const cap = Math.sqrt(16e6 / Math.max(1, el.width * el.height));
+  return Math.max(1, Math.min(4, want, cap));
+}
+
+function ImageEl({ el, common, cropping, onCrop, scale = 1 }) {
   const img = useImg(el.src);
   const ref = useRef(null);
   const filter = cssFilter(el.fx);
   useEffect(() => {
     const n = ref.current; if (!n || !img) return;
     if (filter) {
-      const ratio = Math.max(1, Math.min(3, img.width / Math.max(1, el.width)));
-      n.cache({ pixelRatio: ratio }); n.filters([filter]);
+      n.cache({ pixelRatio: cacheRatio(img, el, scale), imageSmoothingEnabled: true }); n.filters([filter]);
     } else { n.filters([]); n.clearCache(); }
     n.getLayer()?.batchDraw();
-  }, [img, filter, el.width, el.height, el.flipX, el.flipY, el.cornerRadius, el.crop?.zoom, cropping]);
+  }, [img, filter, el.width, el.height, el.flipX, el.flipY, el.cornerRadius, el.crop?.zoom, cropping, Math.round(scale * 4)]);
   const radius = frameRadius(el);
   const framed = !!clipFor(el);
   if (el.crop && img) {
@@ -204,12 +223,46 @@ function TableEl({ el, common }) {
 const SNAP = 8;
 
 const CanvasStage = forwardRef(function CanvasStage(
-  { doc, scale, selectedId, onSelect, onChange, onEditText, editingId, fontTick }, ref,
+  { doc, scale, selectedId, selectedIds = [], onSelect, onChange, onChangeMany, onMarquee, onEditText, editingId, fontTick }, ref,
 ) {
   const stageRef = useRef(null);
   const trRef = useRef(null);
   const uiRef = useRef(null);
   const [guides, setGuides] = useState([]);
+
+  useEffect(() => {
+    let mq;
+    const sync = () => {
+      const r = window.devicePixelRatio || 1;
+      const st = stageRef.current;
+      if (st && Konva.pixelRatio !== r) {
+        Konva.pixelRatio = r;
+        st.getLayers().forEach((l) => { l.getCanvas().setPixelRatio(r); l.batchDraw(); });
+      }
+      mq?.removeEventListener('change', sync);
+      mq = window.matchMedia(`(resolution: ${r}dppx)`);
+      mq.addEventListener('change', sync);
+    };
+    sync();
+    window.addEventListener('resize', sync);
+    return () => { window.removeEventListener('resize', sync); mq?.removeEventListener('change', sync); };
+  }, []);
+
+  useLayoutEffect(() => {
+    const box = stageRef.current?.container()?.parentElement;
+    if (!box) return;
+    const snap = () => {
+      box.style.translate = '';
+      const r = box.getBoundingClientRect();
+      const dx = Math.round(r.left) - r.left, dy = Math.round(r.top) - r.top;
+      if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) box.style.translate = `${dx.toFixed(2)}px ${dy.toFixed(2)}px`;
+    };
+    snap();
+    const ro = new ResizeObserver(snap);
+    if (box.parentElement) ro.observe(box.parentElement);
+    window.addEventListener('resize', snap);
+    return () => { ro.disconnect(); window.removeEventListener('resize', snap); };
+  }, [scale, doc.width, doc.height]);
 
   useImperativeHandle(ref, () => ({
     stage: () => stageRef.current,
@@ -239,6 +292,12 @@ const CanvasStage = forwardRef(function CanvasStage(
   useEffect(() => {
     const tr = trRef.current; if (!tr) return;
     const el = doc.elements.find((e) => e.id === selectedId);
+    if (selectedIds.length > 1) {
+      const nodes = selectedIds.map((id) => { const e = doc.elements.find((x) => x.id === id); return e && !e.locked && e.visible !== false ? stageRef.current.findOne(`#${id}`) : null; }).filter(Boolean);
+      tr.nodes(nodes); tr.enabledAnchors(['top-left', 'top-right', 'bottom-left', 'bottom-right']); tr.keepRatio(true);
+      tr.getLayer().batchDraw();
+      return;
+    }
     const node = selectedId && !el?.locked && editingId !== selectedId ? stageRef.current.findOne(`#${selectedId}`) : null;
     tr.nodes(node ? [node] : []);
     if (el?.type === 'text') tr.enabledAnchors(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'middle-left', 'middle-right']);
@@ -246,7 +305,11 @@ const CanvasStage = forwardRef(function CanvasStage(
     else tr.enabledAnchors(['top-left', 'top-center', 'top-right', 'middle-left', 'middle-right', 'bottom-left', 'bottom-center', 'bottom-right']);
     tr.keepRatio(el?.type === 'image' || (el?.type === 'shape' && el?.keepRatio));
     tr.getLayer().batchDraw();
-  }, [selectedId, doc, editingId, scale]);
+  }, [selectedId, selectedIds.join(','), doc, editingId, scale]);
+  const dragGroup = useRef(null);
+  const [band, setBand] = useState(null);
+  const bandStart = useRef(null);
+  const pointer = () => { const p = stageRef.current.getPointerPosition(); return { x: p.x / scale, y: p.y / scale }; };
 
   useEffect(() => { stageRef.current?.find('Text').forEach((t) => t._setTextData?.()); stageRef.current?.batchDraw(); }, [fontTick]);
 
@@ -270,9 +333,27 @@ const CanvasStage = forwardRef(function CanvasStage(
       id: el.id, key: el.id, x: el.x, y: el.y, rotation: el.rotation || 0, opacity: el.opacity ?? 1,
       ...(el.blend && el.type !== 'image' ? { globalCompositeOperation: el.blend } : {}),
       draggable: !el.locked,
-      onMouseDown: () => onSelect(el.id), onTap: () => onSelect(el.id),
-      onDragMove: snapDrag,
-      onDragEnd: (e) => { setGuides([]); onChange(el.id, { x: e.target.x(), y: e.target.y() }); },
+      onMouseDown: (e) => onSelect(el.id, e.evt.shiftKey || e.evt.ctrlKey || e.evt.metaKey), onTap: () => onSelect(el.id, false),
+      onDragStart: (e) => {
+        if (selectedIds.length > 1 && selectedIds.includes(el.id)) {
+          const st = stageRef.current;
+          dragGroup.current = { x: e.target.x(), y: e.target.y(), others: selectedIds.filter((id) => id !== el.id).map((id) => { const n = st.findOne(`#${id}`); return n ? { id, n, x: n.x(), y: n.y() } : null; }).filter(Boolean) };
+        } else dragGroup.current = null;
+      },
+      onDragMove: (e) => {
+        const g = dragGroup.current;
+        if (g) { const dx = e.target.x() - g.x, dy = e.target.y() - g.y; g.others.forEach((o) => { o.n.x(o.x + dx); o.n.y(o.y + dy); }); return; }
+        snapDrag(e);
+      },
+      onDragEnd: (e) => {
+        setGuides([]);
+        const g = dragGroup.current; dragGroup.current = null;
+        if (g && onChangeMany) {
+          const patches = { [el.id]: { x: e.target.x(), y: e.target.y() } };
+          g.others.forEach((o) => { patches[o.id] = { x: o.n.x(), y: o.n.y() }; });
+          onChangeMany(patches);
+        } else onChange(el.id, { x: e.target.x(), y: e.target.y() });
+      },
       onTransformEnd: (e) => {
         const n = e.target; const sx = n.scaleX(), sy = n.scaleY();
         n.scaleX(1); n.scaleY(1);
@@ -295,11 +376,7 @@ const CanvasStage = forwardRef(function CanvasStage(
     const sh = shadowProps(el.shadow);
     switch (el.type) {
       case 'text':
-        return <Text {...common} text={el.text} width={el.width} fontSize={el.fontSize} fontFamily={el.fontFamily}
-          fontStyle={el.fontStyle || 'normal'} fill={el.fill} align={el.align} lineHeight={el.lineHeight || 1.2}
-          letterSpacing={el.letterSpacing || 0} textDecoration={el.textDecoration || ''} wrap="word"
-          stroke={el.textStroke || undefined} strokeWidth={el.textStroke ? el.textStrokeWidth || 2 : 0} fillAfterStrokeEnabled
-          visible={editingId !== el.id} onDblClick={() => onEditText(el.id)} onDblTap={() => onEditText(el.id)} {...sh} />;
+        return <TextEl key={el.id} el={el} common={common} hidden={editingId === el.id} onEdit={() => onEditText(el.id)} sh={sh} />;
       case 'rect':
         return <Rect {...common} width={el.width} height={el.height} fill={el.fill} cornerRadius={el.cornerRadius || 0}
           stroke={el.stroke} strokeWidth={el.strokeWidth || 0} {...gradientProps(el.gradient, el.width, el.height)} {...sh} />;
@@ -318,15 +395,15 @@ const CanvasStage = forwardRef(function CanvasStage(
       case 'table':
         return <TableEl key={el.id} el={el} common={common} />;
       case 'line':
-        return <Line {...common} points={el.points} stroke={el.stroke} strokeWidth={el.strokeWidth} hitStrokeWidth={20} lineCap="round" dash={el.dash ? [el.strokeWidth * 3, el.strokeWidth * 2] : undefined} {...sh} />;
+        return <Line {...common} points={el.points} {...strokeGradientProps(el.gradient, el.points?.[2] || 100, 1)} stroke={el.stroke} strokeWidth={el.strokeWidth} hitStrokeWidth={20} lineCap="round" dash={el.dash ? [el.strokeWidth * 3, el.strokeWidth * 2] : undefined} {...sh} />;
       case 'image':
         return <ImageEl key={el.id} el={el} common={{ ...common, onDblClick: () => onEditText(el.id), onDblTap: () => onEditText(el.id) }}
-          cropping={editingId === el.id} onCrop={(crop) => onChange(el.id, { crop })} />;
+          cropping={editingId === el.id} scale={scale} onCrop={(crop) => onChange(el.id, { crop })} />;
       case 'placeholder':
         return (
           <Group {...common}>
             <Group clipFunc={clipFor(el)}>
-              <Rect width={el.width} height={el.height} fill={el.fill} cornerRadius={frameRadius(el)} />
+              <Rect width={el.width} height={el.height} fill={el.fill} cornerRadius={frameRadius(el)} {...gradientProps(el.gradient, el.width, el.height)} />
               <Rect name="ph-ui" width={el.width} height={el.height} stroke="#ffffff" strokeWidth={2 / scale} dash={[10 / scale, 8 / scale]} opacity={0.7} listening={false} />
               <Text name="ph-ui" width={el.width} height={el.height} text={`🖼  ${el.label || 'Перетащите фото'}`} align="center" verticalAlign="middle"
                 fontSize={Math.max(14, Math.min(el.width, el.height) / 14)} fill="#ffffff" opacity={0.9} fontFamily="Inter" listening={false} />
@@ -341,17 +418,40 @@ const CanvasStage = forwardRef(function CanvasStage(
   };
 
   return (
-    <Stage ref={stageRef} width={doc.width * scale} height={doc.height * scale} scaleX={scale} scaleY={scale}
-      onMouseDown={(e) => { if (e.target === e.target.getStage() || e.target.name() === 'page-bg') onSelect(null); }}
+    <Stage ref={stageRef} width={Math.round(doc.width * scale)} height={Math.round(doc.height * scale)} scaleX={scale} scaleY={scale}
+      onMouseDown={(e) => {
+        if (e.target === e.target.getStage() || e.target.name() === 'page-bg') {
+          if (!(e.evt.shiftKey || e.evt.ctrlKey)) onSelect(null);
+          if (e.evt.button === 0) { bandStart.current = pointer(); setBand(null); }
+        }
+      }}
+      onMouseMove={() => {
+        const s0 = bandStart.current; if (!s0) return;
+        const p = pointer(); const b = { x: Math.min(s0.x, p.x), y: Math.min(s0.y, p.y), w: Math.abs(p.x - s0.x), h: Math.abs(p.y - s0.y) };
+        if (b.w * scale > 4 || b.h * scale > 4) setBand(b);
+      }}
+      onMouseUp={(e) => {
+        const b = band; bandStart.current = null; setBand(null);
+        if (!b || !onMarquee) return;
+        const layer = stageRef.current.getLayers()[0];
+        const hits = doc.elements.filter((el) => {
+          if (el.visible === false || el.locked) return false;
+          const n = stageRef.current.findOne(`#${el.id}`); if (!n) return false;
+          const r = n.getClientRect({ relativeTo: layer });
+          return r.x < b.x + b.w && r.x + r.width > b.x && r.y < b.y + b.h && r.y + r.height > b.y;
+        }).map((el) => el.id);
+        onMarquee(hits, e.evt.shiftKey || e.evt.ctrlKey);
+      }}
       onTouchStart={(e) => { if (e.target === e.target.getStage() || e.target.name() === 'page-bg') onSelect(null); }}>
       <Layer>
-        <Rect name="page-bg" x={0} y={0} width={doc.width} height={doc.height} fill={doc.background || '#fff'} />
+        <Rect name="page-bg" x={0} y={0} width={doc.width} height={doc.height} fill={doc.background || '#fff'} {...gradientProps(doc.gradient, doc.width, doc.height)} />
         {doc.elements.map(render)}
       </Layer>
       <Layer ref={uiRef}>
         {guides.map((g, i) => (
           <Line key={i} points={g.v ? [g.p, 0, g.p, doc.height] : [0, g.p, doc.width, g.p]} stroke="#ff2d87" strokeWidth={1 / scale} dash={[4 / scale, 4 / scale]} listening={false} />
         ))}
+        {band && <Rect x={band.x} y={band.y} width={band.w} height={band.h} fill="rgba(11,124,252,0.08)" stroke="#0B7CFC" strokeWidth={1 / scale} dash={[4 / scale, 3 / scale]} listening={false} />}
         <Transformer ref={trRef} rotateEnabled anchorSize={COARSE ? 20 : 10} rotateAnchorOffset={COARSE ? 36 : 30} padding={COARSE ? 4 : 0} borderStroke="#0B7CFC" anchorStroke="#0B7CFC" anchorCornerRadius={5}
           rotationSnaps={[0, 45, 90, 135, 180, 225, 270, 315]}
           boundBoxFunc={(oldBox, newBox) => (newBox.width < 5 || newBox.height < 5 ? oldBox : newBox)} />

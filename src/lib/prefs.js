@@ -9,6 +9,10 @@ export const DEFAULT_PREFS = {
   exportFormat: 'png',
   exportMult: 1,
   exportQuality: 0.92,
+  uiAccent: null,
+  uiFont: 'Inter',
+  uiBg: null,
+  controls: 'canva',
 };
 
 export function getPrefs() {

@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react';
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignStartHorizontal, AlignStartVertical,
   Bold, BookmarkPlus, CaseSensitive, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, CopyPlus, Eye, EyeOff, FlipHorizontal2,
-  FlipVertical2, Italic, Lock, Move, RotateCcw, Sparkles, Trash2, Underline, Unlock, Wand2,
+  FlipVertical2, Group, Italic, Lock, Move, Ungroup, Upload, RotateCcw, Sparkles, Trash2, Underline, Unlock, Wand2,
 } from 'lucide-react';
 import { BRAND_COLORS } from '../lib/brand.js';
-import { useFonts } from '../lib/fonts.js';
+import { FONT_TYPES, importFontFile, useFonts } from '../lib/fonts.js';
 import { CHART_KINDS, FRAMES, TABLE_STYLES } from '../lib/elements.js';
 import { FX_DEFAULT, FX_PRESETS } from '../lib/pathscale.js';
 
@@ -90,36 +90,55 @@ function hexToClear(c) {
 }
 const isClear = (c) => /rgba\(.*,\s*0\)$/.test(c || '');
 
-function GradientBox({ el, set }) {
-  const g = el.gradient;
+export const GRADIENT_PRESETS = [
+  { from: '#0B7CFC', to: '#03316F', angle: 90 }, { from: '#ff7a18', to: '#af002d', angle: 45 },
+  { from: '#f5d020', to: '#f53803', angle: 135 }, { from: '#00c6ff', to: '#0072ff', angle: 90 },
+  { from: '#a18cd1', to: '#fbc2eb', angle: 120 }, { from: '#43e97b', to: '#38f9d7', angle: 90 },
+  { from: '#ff0844', mid: '#ffb199', to: '#ffd194', angle: 0 }, { from: '#12c2e9', mid: '#c471ed', to: '#f64f59', angle: 0 },
+  { from: '#232526', to: '#414345', angle: 90 }, { from: '#FFD700', mid: '#FFF6B0', to: '#B8860B', angle: 90 },
+  { from: '#000000', to: 'rgba(0,0,0,0)', angle: 270 }, { from: '#ffffff', to: 'rgba(255,255,255,0)', angle: 90 },
+];
+const gcss = (g) => `linear-gradient(${(g.angle || 0) + 90}deg, ${g.from}, ${g.mid ? `${g.mid}, ` : ''}${g.to})`;
+
+function GradientBox({ el, set, label = 'Градиент', field = 'gradient' }) {
+  const g = el[field];
+  const put = (patch) => set({ [field]: patch && { ...g, ...patch } });
   return (
     <>
       <label className="row" style={{ gap: 8 }}>
-        <input type="checkbox" style={{ width: 'auto' }} checked={!!g} onChange={(e) => set({ gradient: e.target.checked ? { type: 'linear', from: toHex(el.fill || '#0B7CFC'), to: '#03316F', angle: 90 } : undefined })} />
-        Градиент
+        <input type="checkbox" style={{ width: 'auto' }} checked={!!g} onChange={(e) => set({ [field]: e.target.checked ? { type: 'linear', from: toHex(el.fill || el.stroke || el.background || '#0B7CFC'), to: '#03316F', angle: 90 } : undefined })} />
+        {label}
       </label>
       {g && (
         <>
+          <div className="grad-presets">
+            {GRADIENT_PRESETS.map((p, i) => <button key={i} title="Готовый градиент" style={{ background: gcss(p) }} onClick={() => set({ [field]: { type: g.type || 'linear', ...p, mid: p.mid } })} />)}
+          </div>
           <div className="seg">
-            <button className={g.type !== 'radial' ? 'on' : ''} onClick={() => set({ gradient: { ...g, type: 'linear' } })}>Линейный</button>
-            <button className={g.type === 'radial' ? 'on' : ''} onClick={() => set({ gradient: { ...g, type: 'radial' } })}>Круговой</button>
+            <button className={g.type !== 'radial' ? 'on' : ''} onClick={() => put({ type: 'linear' })}>Линейный</button>
+            <button className={g.type === 'radial' ? 'on' : ''} onClick={() => put({ type: 'radial' })}>Круговой</button>
           </div>
-          <div className="two">
-            <div><label>Цвет 1</label><input type="color" value={toHex(g.from)} onChange={(e) => set({ gradient: { ...g, from: e.target.value } })} /></div>
-            <div><label>Цвет 2</label><input type="color" value={toHex(g.to)} onChange={(e) => set({ gradient: { ...g, to: isClear(g.to) ? hexToClear(e.target.value) : e.target.value } })} /></div>
+          <div className="three">
+            <div><label>Цвет 1</label><input type="color" value={toHex(g.from)} onChange={(e) => put({ from: e.target.value })} /></div>
+            <div><label>Середина</label>{g.mid ? <input type="color" value={toHex(g.mid)} onChange={(e) => put({ mid: e.target.value })} /> : <button className="small" style={{ width: '100%', height: 36 }} onClick={() => put({ mid: '#ffffff' })}>+</button>}</div>
+            <div><label>Цвет 2</label><input type="color" value={toHex(g.to)} onChange={(e) => put({ to: isClear(g.to) ? hexToClear(e.target.value) : e.target.value })} /></div>
           </div>
-          <label className="row" style={{ gap: 8 }}>
-            <input type="checkbox" style={{ width: 'auto' }} checked={isClear(g.to)} onChange={(e) => set({ gradient: { ...g, to: e.target.checked ? hexToClear(g.to) : toHex(g.to) } })} />
-            Второй цвет прозрачный
-          </label>
-          {g.type !== 'radial' && <Slider label="Угол" value={g.angle || 0} min={0} max={360} step={5} unit="°" onChange={(v) => set({ gradient: { ...g, angle: v } })} />}
+          <div className="row wrap" style={{ gap: 10 }}>
+            <label className="row" style={{ gap: 6 }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={isClear(g.to)} onChange={(e) => put({ to: e.target.checked ? hexToClear(g.to) : toHex(g.to) })} />
+              Конец прозрачный
+            </label>
+            {g.mid && <button className="small ghost" onClick={() => put({ mid: undefined })}>Убрать середину</button>}
+            <button className="small ghost" onClick={() => put({ from: g.to, to: g.from })}>⇄ Поменять</button>
+          </div>
+          {g.type !== 'radial' && <Slider label="Угол" value={g.angle || 0} min={0} max={360} step={5} unit="°" onChange={(v) => put({ angle: v })} />}
         </>
       )}
     </>
   );
 }
 
-function EffectsBox({ el, set }) {
+function EffectsBox({ el, set, ctl }) {
   const sh = el.shadow === true ? { color: '#000000', blur: 12, x: 0, y: 0, opacity: 0.6 } : el.shadow;
   const put = (p) => set({ shadow: { ...sh, ...p } });
   return (
@@ -145,15 +164,15 @@ function EffectsBox({ el, set }) {
           <Slider label="Плотность" value={Math.round((sh.opacity ?? 0.6) * 100)} min={0} max={100} unit="%" onChange={(v) => put({ opacity: v / 100 })} />
         </>
       )}
-      <label>Режим наложения</label>
+      {(ctl?.has('blend') || el.blend) && <><label>Режим наложения</label>
       <select value={el.blend || ''} onChange={(e) => set({ blend: e.target.value || undefined })}>
         {BLENDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-      </select>
+      </select></>}
     </Section>
   );
 }
 
-function FiltersBox({ el, set }) {
+function FiltersBox({ el, set, ctl }) {
   const fx = { ...FX_DEFAULT, ...(el.fx || {}) };
   const put = (p) => set({ fx: { ...(el.fx || {}), ...p } });
   return (
@@ -164,13 +183,82 @@ function FiltersBox({ el, set }) {
       <Slider label="Яркость" value={fx.brightness} min={0} max={200} unit="%" onChange={(v) => put({ brightness: v })} />
       <Slider label="Контраст" value={fx.contrast} min={0} max={200} unit="%" onChange={(v) => put({ contrast: v })} />
       <Slider label="Насыщенность" value={fx.saturate} min={0} max={300} unit="%" onChange={(v) => put({ saturate: v })} />
+      {ctl?.has('fxFull') ? <>
       <Slider label="Оттенок" value={fx.hue} min={-180} max={180} unit="°" onChange={(v) => put({ hue: v })} />
       <Slider label="Размытие" value={fx.blur} min={0} max={20} step={0.5} unit=" px" onChange={(v) => put({ blur: v })} />
       <Slider label="Ч/Б" value={fx.grayscale} min={0} max={100} unit="%" onChange={(v) => put({ grayscale: v })} />
       <Slider label="Сепия" value={fx.sepia} min={0} max={100} unit="%" onChange={(v) => put({ sepia: v })} />
       <Slider label="Негатив" value={fx.invert} min={0} max={100} unit="%" onChange={(v) => put({ invert: v })} />
+      </> : <p className="small muted">Больше ползунков (оттенок, размытие, сепия) — в режиме управления «Photoshop» или «Всё сразу» в «Моих настройках».</p>}
       {el.fx && <button className="small" style={{ marginTop: 8 }} onClick={() => set({ fx: undefined })}><RotateCcw size={14} /> Сбросить фильтры</button>}
     </Section>
+  );
+}
+
+function DocColors({ actions, ids }) {
+  const cols = actions.docColors(ids);
+  if (!cols.length) return null;
+  return (
+    <Section title={ids ? 'Цвета выделенного' : 'Цвета дизайна'} open>
+      <p className="small muted" style={{ marginTop: 0 }}>Поменяйте цвет — он заменится везде, где встречается.</p>
+      <div className="swatches">
+        {cols.map((c) => <input key={c} type="color" className="swatch-input" title={c} defaultValue={c} onChange={(e) => actions.replaceColor(c, e.target.value.toLowerCase(), ids)} />)}
+      </div>
+    </Section>
+  );
+}
+
+function MultiPanel({ doc, ids, actions, ctl }) {
+  const [gap, setGap] = useState(24);
+  const [cross, setCross] = useState('start');
+  const els = doc.elements.filter((e) => ids.includes(e.id));
+  const grouped = els.some((e) => e.groupId);
+  const op = Math.round((els.reduce((a, e) => a + (e.opacity ?? 1), 0) / els.length) * 100);
+  return (
+    <>
+      <div className="row"><h3 className="grow" style={{ margin: 0 }}>Выбрано: {ids.length}</h3>
+        <button className="small" title="Дублировать" onClick={actions.duplicateSel}><CopyPlus size={15} /></button>
+        <button className="small danger" title="Удалить" onClick={actions.removeSel}><Trash2 size={15} /></button>
+      </div>
+      <div className="row wrap" style={{ marginTop: 8 }}>
+        <button className="small" onClick={actions.group}><Group size={15} /> Сгруппировать</button>
+        {grouped && <button className="small" onClick={actions.ungroup}><Ungroup size={15} /> Разгруппировать</button>}
+      </div>
+      <label>Выровнять между собой</label>
+      <div className="row wrap align-row">
+        <button title="По левому краю" onClick={() => actions.alignSel('left')}><AlignStartVertical size={15} /></button>
+        <button title="По центру" onClick={() => actions.alignSel('hcenter')}><AlignCenterVertical size={15} /></button>
+        <button title="По правому краю" onClick={() => actions.alignSel('right')}><AlignEndVertical size={15} /></button>
+        <button title="По верху" onClick={() => actions.alignSel('top')}><AlignStartHorizontal size={15} /></button>
+        <button title="По середине" onClick={() => actions.alignSel('vcenter')}><AlignCenterHorizontal size={15} /></button>
+        <button title="По низу" onClick={() => actions.alignSel('bottom')}><AlignEndHorizontal size={15} /></button>
+      </div>
+      {ctl?.has('distribute') && (<div className="row wrap" style={{ marginTop: 6 }}>
+        <button className="small" onClick={() => actions.distribute('h')}>↔ Равные промежутки</button>
+        <button className="small" onClick={() => actions.distribute('v')}>↕ Равные промежутки</button>
+      </div>)}
+      {ctl?.has('autoLayout') && (
+        <Section title="Автораскладка (как в Figma)" open>
+          <Slider label="Отступ" value={gap} min={0} max={200} unit=" px" onChange={setGap} />
+          <div className="seg" style={{ marginTop: 6 }}>
+            {[['start', 'К началу'], ['center', 'По центру'], ['end', 'К концу']].map(([k, l]) => <button key={k} className={cross === k ? 'on' : ''} onClick={() => setCross(k)}>{l}</button>)}
+          </div>
+          <div className="row wrap" style={{ marginTop: 8 }}>
+            <button className="small" onClick={() => actions.autoLayout('row', gap, cross)}>→ В ряд</button>
+            <button className="small" onClick={() => actions.autoLayout('column', gap, cross)}>↓ В колонку</button>
+            {ctl?.has('tidy') && <button className="small" onClick={() => actions.tidy(gap)}>▦ Навести порядок</button>}
+          </div>
+        </Section>
+      )}
+      <Slider label="Прозрачность всех" value={op} min={0} max={100} unit="%" onChange={(v) => actions.setForSel({ opacity: v / 100 })} />
+      <div className="row wrap" style={{ marginTop: 8 }}>
+        <button className="small" onClick={() => actions.setForSel({ locked: true })}><Lock size={14} /> Закрепить</button>
+        <button className="small" onClick={() => actions.setForSel({ locked: false })}><Unlock size={14} /> Открепить</button>
+        <button className="small" onClick={actions.pasteStyle} title="Ctrl+Alt+V">Вставить стиль</button>
+      </div>
+      {ctl?.has('selColors') && <DocColors actions={actions} ids={ids} />}
+      <p className="small muted">Тяните любой из выбранных — двигаются все. Shift+клик убирает элемент из выбора.</p>
+    </>
   );
 }
 
@@ -280,8 +368,10 @@ export function elName(e) {
   return TYPE_NAMES[e.type] || e.type;
 }
 
-export default function PropsPanel({ doc, el, update, updateDoc, actions, select, selectedId }) {
+export default function PropsPanel({ doc, el, update, updateDoc, actions, select, selectedId, multi, ctl }) {
   const fonts = useFonts().all;
+  const [fontBusy, setFontBusy] = useState(false);
+  const [fontErr, setFontErr] = useState('');
   const set = (patch) => update(el.id, patch);
   const toggleStyle = (part) => {
     const cur = new Set((el.fontStyle || 'normal').split(' ').filter((x) => x !== 'normal'));
@@ -290,7 +380,8 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
   };
   return (
     <div className="props">
-      {!el && (
+      {multi && <MultiPanel doc={doc} ids={multi} actions={actions} ctl={ctl} />}
+      {!el && !multi && (
         <>
           <h3>Документ</h3>
           <div className="muted small">{doc.width} × {doc.height} px</div>
@@ -299,6 +390,9 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
             <div><label>Высота</label><input type="number" value={doc.height} onChange={(e) => updateDoc({ height: Math.max(50, Number(e.target.value)) })} /></div>
           </div>
           <Color label="Фон" value={doc.background} onChange={(v) => updateDoc({ background: v })} />
+          <GradientBox el={{ fill: doc.background, gradient: doc.gradient }} set={updateDoc} label="Градиентный фон" />
+          {ctl?.has('selColors') && <DocColors actions={actions} />}
+          <p className="small muted">Shift+клик или рамка мышью по пустому месту — выбрать несколько элементов.</p>
         </>
       )}
       {el && (
@@ -313,9 +407,19 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
               <label>Текст (двойной клик по тексту — править на холсте)</label>
               <textarea rows={4} value={el.text} onChange={(e) => set({ text: e.target.value })} />
               <label>Шрифт</label>
-              <select value={el.fontFamily} onChange={(e) => set({ fontFamily: e.target.value })}>
-                {fonts.map((f) => <option key={f} style={{ fontFamily: f }}>{f}</option>)}
-              </select>
+              <div className="row" style={{ gap: 6 }}>
+                <select className="grow" value={el.fontFamily} onChange={(e) => set({ fontFamily: e.target.value })} style={{ fontFamily: el.fontFamily }}>
+                  {fonts.map((f) => <option key={f} style={{ fontFamily: f }}>{f}</option>)}
+                </select>
+                <button className="small" title="Загрузить свой шрифт (TTF, OTF, WOFF)" disabled={fontBusy} onClick={() => document.getElementById('props-font-file').click()}><Upload size={15} /> {fontBusy ? '…' : 'Свой'}</button>
+              </div>
+              <input id="props-font-file" type="file" accept={FONT_TYPES} hidden onChange={async (e) => {
+                const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+                setFontBusy(true); setFontErr('');
+                try { const name = await importFontFile(f); set({ fontFamily: name }); } catch (er) { setFontErr(er.message || 'Не получилось загрузить шрифт'); }
+                setFontBusy(false);
+              }} />
+              {fontErr && <div className="error">{fontErr}</div>}
               <div className="two">
                 <div><label>Размер</label><input type="number" value={num(el.fontSize)} onChange={(e) => set({ fontSize: Number(e.target.value) })} /></div>
                 <div><label>Межстрочный</label><input type="number" step="0.05" value={el.lineHeight || 1.2} onChange={(e) => set({ lineHeight: Number(e.target.value) })} /></div>
@@ -335,6 +439,7 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
               <label>Межбуквенный: {el.letterSpacing || 0}</label>
               <input type="range" min="-5" max="30" value={el.letterSpacing || 0} onChange={(e) => set({ letterSpacing: Number(e.target.value) })} />
               <Color label="Цвет текста" value={el.fill} onChange={(v) => set({ fill: v })} />
+              <GradientBox el={el} set={set} label="Градиент в буквах" />
               <label className="row" style={{ gap: 8 }}>
                 <input type="checkbox" style={{ width: 'auto' }} checked={!!el.textStroke} onChange={(e) => set({ textStroke: e.target.checked ? '#000000' : undefined, textStrokeWidth: 3 })} /> Обводка букв
               </label>
@@ -347,7 +452,7 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
           {['rect', 'ellipse', 'placeholder'].includes(el.type) && (
             <>
               <Color label="Заливка" value={el.fill} onChange={(v) => set({ fill: v })} />
-              {el.type !== 'placeholder' && <GradientBox el={el} set={set} />}
+              <GradientBox el={el} set={set} />
               {el.type === 'placeholder' && (<><label>Форма рамки</label>
                 <select value={el.clipPath ? '__own' : el.mask || ''} onChange={(e) => e.target.value !== '__own' && set({ mask: e.target.value || undefined, clipPath: undefined, clipVb: undefined })}>
                   {el.clipPath && <option value="__own">Своя форма</option>}
@@ -368,6 +473,7 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
               <Color label="Цвет" value={el.stroke} onChange={(v) => set({ stroke: v })} />
               <label>Толщина</label><input type="number" value={el.strokeWidth} onChange={(e) => set({ strokeWidth: Number(e.target.value) })} />
               <label className="row"><input type="checkbox" style={{ width: 'auto' }} checked={!!el.dash} onChange={(e) => set({ dash: e.target.checked })} /> Пунктир</label>
+              <GradientBox el={el} set={set} label="Градиент по линии" />
             </>
           )}
           {el.type === 'shape' && (
@@ -416,7 +522,7 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
                 <div><label>Рамка</label><input type="color" value={el.stroke || '#ffffff'} onChange={(e) => set({ stroke: e.target.value, strokeWidth: el.strokeWidth || 8 })} /></div>
                 <div><label>Толщина</label><input type="number" value={el.strokeWidth || 0} onChange={(e) => set({ strokeWidth: Number(e.target.value), stroke: el.stroke || '#ffffff' })} /></div>
               </div>
-              <FiltersBox el={el} set={set} />
+              <FiltersBox el={el} set={set} ctl={ctl} />
             </>
           )}
           {el.type === 'image' && (
@@ -435,7 +541,7 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
             {!['text', 'line'].includes(el.type) && <div><label>Высота</label><input type="number" value={num(el.height)} onChange={(e) => set({ height: Number(e.target.value) })} /></div>}
             <div><label>Поворот</label><input type="number" value={num(el.rotation || 0)} onChange={(e) => set({ rotation: Number(e.target.value) })} /></div>
           </div>
-          {el.type !== 'placeholder' && <EffectsBox el={el} set={set} />}
+          {el.type !== 'placeholder' && <EffectsBox el={el} set={set} ctl={ctl} />}
           <label>Выровнять на листе</label>
           <div className="row wrap align-row">
             <button className="small" title="По левому краю" onClick={() => actions.align('left')}><AlignStartVertical size={15} /></button>
