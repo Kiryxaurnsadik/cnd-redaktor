@@ -1,5 +1,6 @@
 import { AlignCenterHorizontal, Bold, CaseSensitive, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, CopyPlus, Eye, EyeOff, Italic, Lock, Sparkles, Trash2, Underline, Unlock } from 'lucide-react';
-import { BRAND_COLORS, FONTS } from '../lib/brand.js';
+import { BRAND_COLORS } from '../lib/brand.js';
+import { useFonts } from '../lib/fonts.js';
 
 function Color({ label, value, onChange }) {
   return (
@@ -26,6 +27,7 @@ export function elName(e) {
 }
 
 export default function PropsPanel({ doc, el, update, updateDoc, actions, select, selectedId }) {
+  const fonts = useFonts().all;
   const set = (patch) => update(el.id, patch);
   const toggleStyle = (part) => {
     const cur = new Set((el.fontStyle || 'normal').split(' ').filter((x) => x !== 'normal'));
@@ -57,7 +59,7 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
               <textarea rows={4} value={el.text} onChange={(e) => set({ text: e.target.value })} />
               <label>Шрифт</label>
               <select value={el.fontFamily} onChange={(e) => set({ fontFamily: e.target.value })}>
-                {FONTS.map((f) => <option key={f} style={{ fontFamily: f }}>{f}</option>)}
+                {fonts.map((f) => <option key={f} style={{ fontFamily: f }}>{f}</option>)}
               </select>
               <div className="two">
                 <div><label>Размер</label><input type="number" value={num(el.fontSize)} onChange={(e) => set({ fontSize: Number(e.target.value) })} /></div>

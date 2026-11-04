@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { SkinViewer } from 'skinview3d';
 import * as THREE from 'three';
+import { ITEMS, disposeItem, makeItem } from '../lib/items.js';
 
 const D = Math.PI / 180;
 export const POSES = {
@@ -42,6 +43,10 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
   const [model, setModel] = useState('auto-detect');
   const [error, setError] = useState('');
   const [mode, setMode] = useState(initialMode);
+  const [item, setItem] = useState('none');
+  const [hand, setHand] = useState('rightArm');
+  const [customItem, setCustomItem] = useState(null);
+  const itemRef = useRef(null);
 
   useEffect(() => {
     const viewer = new SkinViewer({ canvas: canvasRef.current, width: 520, height: 520, preserveDrawingBuffer: true });
@@ -58,6 +63,21 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
   }, [skin, model]);
 
   useEffect(() => { const v = viewerRef.current; if (v) applyPose(v.playerObject.skin, pose); }, [pose]);
+
+  // Предмет в руке
+  useEffect(() => {
+    let alive = true;
+    const v = viewerRef.current; if (!v) return undefined;
+    const old = itemRef.current;
+    if (old) { old.parent?.remove(old); disposeItem(old); itemRef.current = null; }
+    if (mode === 'head') return undefined;
+    makeItem(item, customItem).then((g) => {
+      if (!alive || !g) return;
+      if (hand === 'leftArm') g.scale.x = -1;
+      v.playerObject.skin[hand].add(g); itemRef.current = g;
+    }).catch(() => setError('Не удалось собрать предмет из картинки'));
+    return () => { alive = false; };
+  }, [item, hand, customItem, mode, skin, model]);
 
   // Режим «Только голова»: прячем тело и подводим камеру к голове
   useEffect(() => {
@@ -135,6 +155,22 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
             <select onChange={(e) => setPose(structuredClone(POSES[e.target.value]))} defaultValue="stand">
               {Object.entries(POSES).map(([k, p]) => <option key={k} value={k}>{p.label}</option>)}
             </select></>}
+            {mode === 'body' && <><label>Предмет в руке</label>
+            <select value={item} onChange={(e) => { const k = e.target.value; if (k === 'custom' && !customItem) document.getElementById('item-file').click(); setItem(k); }}>
+              {Object.entries(ITEMS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+            <input id="item-file" type="file" accept="image/png" hidden onChange={(e) => {
+              const f = e.target.files[0]; if (!f) return;
+              const r = new FileReader(); r.onload = () => { setCustomItem(r.result); setItem('custom'); }; r.readAsDataURL(f); e.target.value = '';
+            }} />
+            {item !== 'none' && (
+              <div className="seg" style={{ marginTop: 6 }}>
+                <button className={hand === 'rightArm' ? 'on' : ''} onClick={() => setHand('rightArm')}>Правая рука</button>
+                <button className={hand === 'leftArm' ? 'on' : ''} onClick={() => setHand('leftArm')}>Левая рука</button>
+              </div>
+            )}
+            {item === 'custom' && <button className="small" style={{ marginTop: 6 }} onClick={() => document.getElementById('item-file').click()}>Другая картинка предмета…</button>}
+            </>}
             <label>Свет</label>
             <select value={light} onChange={(e) => setLight(e.target.value)}>
               {Object.entries(LIGHTS).map(([k, l]) => <option key={k} value={k}>{l.label}</option>)}

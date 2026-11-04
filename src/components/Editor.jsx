@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, BadgeCheck, BookmarkPlus, Check, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, RotateCcw, Send, Shapes, Type, Undo2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, BookmarkPlus, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, Send, Shapes, Type, Undo2, UserRound, X } from 'lucide-react';
 import ThemeToggle from './ThemeToggle.jsx';
 import { HelpButton, TIPS } from './Help.jsx';
 import { Who } from './TopBar.jsx';
+import { UserSettingsButton } from './UserSettings.jsx';
 import { api } from '../api/index.js';
 import CanvasStage from './CanvasStage.jsx';
 import PropsPanel from './PropsPanel.jsx';
 import SkinPoser from './SkinPoser.jsx';
 import { BrandPanel, CharactersPanel, ElementsPanel, PhotosPanel, TemplatesPanel, TextPanel } from './Panels.jsx';
-import { statusBadge } from './Home.jsx';
 import { BRAND } from '../lib/brand.js';
 import { WATERMARK_STYLES, applyWatermark } from '../lib/watermark.js';
+import { loadCustomFonts } from '../lib/fonts.js';
+import { usePrefs } from '../lib/prefs.js';
 import { isWebhook, postToDiscord } from '../lib/discord.js';
 import { withIds } from '../lib/templates.js';
 import { canManage, compressImage, loadImage, roleLabel, uid } from '../lib/util.js';
@@ -24,7 +26,6 @@ export default function Editor({ session, left, go, open }) {
   const [doc, setDocState] = useState(null);
   const [title, setTitle] = useState(open.title || 'Без названия');
   const [workId, setWorkId] = useState(open.workId || null);
-  const [status, setStatus] = useState('draft');
   const [author, setAuthor] = useState(session.nickname);
   const [selectedId, setSelectedId] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -34,7 +35,12 @@ export default function Editor({ session, left, go, open }) {
   const [uploads, setUploads] = useState([]);
   const [poserSkin, setPoserSkin] = useState(null);
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportOpts, setExportOpts] = useState({ format: 'png', mult: 1, quality: 0.92 });
+  const [prefs, savePrefs] = usePrefs();
+  const exportOpts = { format: prefs.exportFormat, mult: prefs.exportMult, quality: prefs.exportQuality };
+  const setExportOpts = (o) => savePrefs({ exportFormat: o.format, exportMult: o.mult, exportQuality: o.quality });
+  const [toArchive, setToArchive] = useState(prefs.archiveOnExport);
+  const [channel, setChannel] = useState(0);
+  const [comment, setComment] = useState('');
   const [toast, setToast] = useState('');
   const [saved, setSaved] = useState('');
   const [settings, setSettings] = useState({ watermarkOpacity: 0.85, watermarkCorner: 'br', watermarkStyle: 'corner', watermarkChoice: true });
@@ -46,17 +52,18 @@ export default function Editor({ session, left, go, open }) {
   const placeholderTarget = useRef(null);
 
   const [tipIdx, setTipIdx] = useState(() => Math.floor(Math.random() * TIPS.length));
-  const [tipOn, setTipOn] = useState(() => { try { return localStorage.getItem('cnd_tips_off') !== '1'; } catch { return true; } });
-  const hideTips = () => { setTipOn(false); try { localStorage.setItem('cnd_tips_off', '1'); } catch { /* ок */ } };
+  const tipOn = prefs.tips;
+  const hideTips = () => savePrefs({ tips: false });
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2600); };
 
   // ---- загрузка работы / шаблона
   useEffect(() => {
     api.getSettings().then((s) => s && setSettings((p) => ({ ...p, ...s }))).catch(() => {});
+    loadCustomFonts().then(() => setFontTick((t) => t + 1));
     if (open.workId) {
       api.getWork(open.workId).then((w) => {
         if (!w) { flash('Работа не найдена'); go({ name: 'home' }); return; }
-        setDocState(w.doc); setTitle(w.title || 'Без названия'); setStatus(w.status || 'draft'); setAuthor(w.author);
+        setDocState(w.doc); setTitle(w.title || 'Без названия'); setAuthor(w.author);
       });
     } else setDocState(open.doc);
   }, []);
@@ -169,7 +176,7 @@ export default function Editor({ session, left, go, open }) {
     if (!selected) { updateDoc({ background: c }); return; }
     update(selected.id, selected.type === 'line' ? { stroke: c } : { fill: c });
   };
-  const applyFont = (f) => selected?.type === 'text' ? update(selected.id, { fontFamily: f }) : flash('Выделите текст');
+  const applyFont = (f, quiet) => selected?.type === 'text' ? update(selected.id, { fontFamily: f }) : !quiet && flash('Выделите текст');
   const applyTemplate = (t) => {
     if (!t.official) api.useTemplate(t.id).catch(() => {});
     commit(withIds(structuredClone(t.doc))); setSelectedId(null);
@@ -213,7 +220,7 @@ export default function Editor({ session, left, go, open }) {
     if (!workId) setWorkId(id);
     const thumb = stageApi.current?.toThumb(360);
     try {
-      await api.saveWork({ id, title, status, doc, thumb, ...extra });
+      await api.saveWork({ id, title, doc, thumb, ...extra });
       setSaved(`Сохранено ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`);
       return id;
     } catch (e) { setSaved('Не сохранено'); flash(e.message); throw e; }
@@ -226,34 +233,46 @@ export default function Editor({ session, left, go, open }) {
     return () => clearTimeout(savingRef.current);
   }, [doc, title]);
 
-  const changeStatus = async (s) => {
-    try { await persist({ status: s }); setStatus(s); flash(s === 'review' ? 'Отправлено на проверку' : s === 'approved' ? 'Работа одобрена' : 'Возвращено на доработку'); }
-    catch { /* сообщение уже показано */ }
-  };
-
   // ---- экспорт и копирование
-  const isDraft = session.role === 'intern' && status !== 'approved';
   const styleNow = (settings.watermarkChoice && wmStyle) || settings.watermarkStyle || 'corner';
   const renderFinal = async (format, mult) => {
     setEditingId(null);
     const canvas = stageApi.current.toCanvas(mult);
     let exportId = '';
     try {
-      const rec = await api.logExport({ workId, title, format, watermark: `${WATERMARK_STYLES[styleNow] || styleNow}${isDraft ? ' + черновик' : ''}` });
+      const rec = await api.logExport({ workId, title, format, watermark: WATERMARK_STYLES[styleNow] || styleNow });
       exportId = rec?.id || '';
     } catch { /* экспорт всё равно делаем */ }
     const k = canvas.width / doc.width;
     const avoid = doc.elements.filter((e) => e.type === 'image' && /логотип/i.test(e.name || '') && e.visible !== false)
       .map((e) => ({ x: e.x * k, y: e.y * k, width: e.width * k, height: e.height * k }));
-    await applyWatermark(canvas, { draft: isDraft, author: session.nickname, exportId, opacity: settings.watermarkOpacity, corner: settings.watermarkCorner, style: styleNow, avoid });
+    await applyWatermark(canvas, { author: session.nickname, exportId, opacity: settings.watermarkOpacity, corner: settings.watermarkCorner, style: styleNow, avoid });
     return canvas;
   };
   const toBlob = (canvas, type, q) => new Promise((r) => canvas.toBlob(r, type, q));
 
+  // Готовая картинка (уже с водяным знаком) уходит в общую ленту архива
+  const scaled = (canvas, max, q) => {
+    const k = Math.min(1, max / Math.max(canvas.width, canvas.height));
+    const c = document.createElement('canvas'); c.width = Math.round(canvas.width * k); c.height = Math.round(canvas.height * k);
+    const x = c.getContext('2d'); x.fillStyle = '#ffffff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(canvas, 0, 0, c.width, c.height);
+    return { url: c.toDataURL('image/jpeg', q), w: c.width, h: c.height };
+  };
+  const addToArchive = async (canvas, quiet = false) => {
+    try {
+      const big = scaled(canvas, 1600, 0.85); const small = scaled(canvas, 420, 0.72);
+      await api.archiveAdd({ title: title || 'Без названия', workId, image: big.url, thumb: small.url, width: big.w, height: big.h });
+      if (!quiet) flash('Работа добавлена в ленту архива');
+    } catch (e) { flash(`Архив: ${e.message}`); }
+  };
+  const archiveIfNeeded = (canvas) => { if (toArchive) addToArchive(canvas, true); };
+
   const download = async () => {
     const { format, mult, quality } = exportOpts;
     const type = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' }[format];
-    const blob = await toBlob(await renderFinal(format, mult), type, quality);
+    const canvas = await renderFinal(format, mult);
+    archiveIfNeeded(canvas);
+    const blob = await toBlob(canvas, type, quality);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `${(title || 'cnd').replace(/[\\/:*?"<>|]+/g, '_')}.${format}`;
@@ -265,7 +284,7 @@ export default function Editor({ session, left, go, open }) {
   // Браузеры копируют картинки только в PNG
   const copyToClipboard = () => {
     if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') { flash('Браузер не умеет копировать картинки, скачайте файл'); return; }
-    const blobPromise = renderFinal('png-буфер', exportOpts.mult).then((c) => toBlob(c, 'image/png'));
+    const blobPromise = renderFinal('png-буфер', exportOpts.mult).then((c) => { archiveIfNeeded(c); return toBlob(c, 'image/png'); });
     navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })])
       .then(() => flash('Картинка скопирована — вставьте её в Discord (Ctrl+V)'))
       .catch(() => flash('Не удалось скопировать. Разрешите доступ к буферу обмена или скачайте файл.'));
@@ -273,13 +292,19 @@ export default function Editor({ session, left, go, open }) {
   };
 
   const [sending, setSending] = useState(false);
+  const channels = (settings.discordChannels?.length ? settings.discordChannels : settings.discordWebhook ? [{ name: 'Discord', url: settings.discordWebhook }] : [])
+    .filter((c) => isWebhook(c.url));
   const sendToDiscord = async () => {
     setSending(true);
     try {
+      const ch = channels[channel] || channels[0];
       const canvas = await renderFinal('discord', exportOpts.mult);
+      archiveIfNeeded(canvas);
       const blob = await toBlob(canvas, 'image/png');
-      await postToDiscord(settings.discordWebhook, { content: `📰 **${title || 'Без названия'}**\nАвтор: ${author}`, file: blob, filename: `${(title || 'cnd').replace(/[^\wа-яё-]+/gi, '_')}.png` });
-      flash('Работа отправлена в Discord');
+      const text = [comment.trim(), `📰 **${title || 'Без названия'}** · автор: ${author}`].filter(Boolean).join('\n');
+      await postToDiscord(ch.url, { content: text, file: blob, filename: `${(title || 'cnd').replace(/[^\wа-яё-]+/gi, '_')}.png` });
+      flash(`Отправлено в канал «${ch.name}»`);
+      setComment('');
       setExportOpen(false);
     } catch (e) { flash(e.message); }
     setSending(false);
@@ -300,7 +325,6 @@ export default function Editor({ session, left, go, open }) {
   if (!doc) return <div className="editor"><div className="topbar">Загрузка…</div></div>;
 
   const editingEl = doc.elements.find((e) => e.id === editingId);
-  const canReview = canManage(session.role);
 
   return (
     <div className="editor">
@@ -308,7 +332,6 @@ export default function Editor({ session, left, go, open }) {
         <button onClick={async () => { await persist().catch(() => {}); go({ name: 'home' }); }} title="Сохранить и выйти к работам"><ArrowLeft size={16} /> Работы</button>
         <img className="logo" src={BRAND.iconWhite} alt="" />
         <input className="title" value={title} onChange={(e) => setTitle(e.target.value)} />
-        {statusBadge(status)}
         <span className="saved">{saved}</span>
         <span className="sep" />
         <button className="icon" title="Отменить (Ctrl+Z)" aria-label="Отменить" onClick={undo}><Undo2 size={17} /></button>
@@ -318,12 +341,10 @@ export default function Editor({ session, left, go, open }) {
         </select>
         <div className="grow" />
         <Who compact session={session} label={author !== session.nickname ? `Автор: ${author}` : session.nickname} />
-        {!canReview && ['draft', 'returned'].includes(status) && <button onClick={() => changeStatus('review')} title="Редактор получит работу на проверку"><Send size={16} /> На проверку</button>}
-        {canReview && status !== 'approved' && <button onClick={() => changeStatus('approved')} title="Одобрить работу"><Check size={16} /> Одобрить</button>}
-        {canReview && status === 'review' && <button onClick={() => changeStatus('returned')} title="Вернуть автору на доработку"><RotateCcw size={16} /> Вернуть</button>}
         <button onClick={() => setTplForm({ name: title, tags: '' })} title="Опубликовать дизайн как шаблон для коллег"><BookmarkPlus size={16} /> В шаблоны</button>
         <button onClick={copyToClipboard} title="Копировать картинку в буфер (Ctrl+Shift+C)"><Copy size={16} /> Копировать</button>
         <HelpButton start="editor" />
+        <UserSettingsButton />
         <ThemeToggle />
         <div style={{ position: 'relative' }}>
           <button className="primary" onClick={() => setExportOpen((v) => !v)}><Download size={16} /> Скачать</button>
@@ -347,10 +368,24 @@ export default function Editor({ session, left, go, open }) {
                 <select value={styleNow} onChange={(e) => setWmStyle(e.target.value)}>
                   {Object.entries(WATERMARK_STYLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select></>)}
-              {isDraft && <p className="small" style={{ color: 'var(--warn)' }}>Работа стажёра без одобрения выгружается с водяным знаком «ЧЕРНОВИК CND».</p>}
+              <label className="row" style={{ marginTop: 12 }}>
+                <input type="checkbox" style={{ width: 'auto' }} checked={toArchive} onChange={(e) => setToArchive(e.target.checked)} />
+                <span className="small">Добавить в ленту архива CND</span>
+              </label>
               <button className="primary" style={{ width: '100%', marginTop: 10 }} onClick={download}><Download size={16} /> Скачать файл</button>
               <button style={{ width: '100%', marginTop: 6 }} onClick={copyToClipboard}><Copy size={16} /> Копировать в буфер (PNG)</button>
-              {isWebhook(settings.discordWebhook) && <button style={{ width: '100%', marginTop: 6 }} disabled={sending} onClick={sendToDiscord}><Send size={16} /> {sending ? 'Отправляю…' : 'Отправить в Discord'}</button>}
+              {!!channels.length && (
+                <div className="menu-discord">
+                  <label>Отправить в Discord</label>
+                  {channels.length > 1 && (
+                    <select value={channel} onChange={(e) => setChannel(Number(e.target.value))}>
+                      {channels.map((c, i) => <option key={i} value={i}>#{c.name}</option>)}
+                    </select>
+                  )}
+                  <input style={{ marginTop: 6 }} placeholder="Текст к посту (необязательно)" value={comment} onChange={(e) => setComment(e.target.value)} />
+                  <button style={{ width: '100%', marginTop: 6 }} disabled={sending} onClick={sendToDiscord}><Send size={16} /> {sending ? 'Отправляю…' : `В канал «${(channels[channel] || channels[0]).name}»`}</button>
+                </div>
+              )}
             </div>
           )}
         </div>

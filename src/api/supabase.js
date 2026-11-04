@@ -63,5 +63,14 @@ export function createSupabaseApi(url, anonKey) {
     logExport: ({ workId, title, format, watermark }) =>
       rpc('cnd_log_export', { p_work_id: workId, p_title: title, p_format: format, p_watermark: watermark }),
     listExports: () => rpc('cnd_list_exports'),
+
+    listFonts: () => rpc('cnd_list_fonts'),
+    saveFont: ({ family, data }) => rpc('cnd_save_font', { p_family: family, p_data: data }),
+    deleteFont: (id) => rpc('cnd_delete_font', { p_id: id }),
+
+    archiveAdd: (item) => rpc('cnd_archive_add', { p_item: item }),
+    archiveList: ({ q = '', before = null, limit = 40 } = {}) => rpc('cnd_archive_list', { p_q: q, p_before: before, p_limit: limit }),
+    archiveGet: (id) => rpc('cnd_archive_get', { p_id: id }),
+    archiveDelete: (id) => rpc('cnd_archive_delete', { p_id: id }),
   };
 }

@@ -4,6 +4,7 @@ import { roleLabel } from '../lib/util.js';
 import Countdown from './Countdown.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
 import { HelpButton } from './Help.jsx';
+import { UserSettingsButton } from './UserSettings.jsx';
 
 export function Who({ session, label, compact = false }) {
   return (
@@ -22,6 +23,7 @@ export default function TopBar({ session, logout, children, help }) {
       <div className="grow" />
       <Who session={session} />
       <HelpButton start={help} />
+      <UserSettingsButton />
       <ThemeToggle />
       <button onClick={logout} title="Выйти"><LogOut size={16} /> Выйти</button>
     </div>

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/index.js';
-import { BRAND, BRAND_COLORS, FONTS } from '../lib/brand.js';
+import { BRAND, BRAND_COLORS } from '../lib/brand.js';
+import { FONT_TYPES, deleteFont, importFontFile, useFonts } from '../lib/fonts.js';
 import { OFFICIAL_TEMPLATES } from '../lib/templates.js';
 import { SKIN_SOURCES, fetchSkinByNick, renderFlatBody, renderHead, validateSkin } from '../lib/skin.js';
 import { fileToDataURL } from '../lib/util.js';
 import { docThumb } from '../lib/thumb.js';
-import { Box, Circle, Contrast, Frame, Image as ImageIcon, Minus, MoreHorizontal, RectangleHorizontal, Search, Square, Upload, UserRound } from 'lucide-react';
+import { Box, Circle, Contrast, Frame, Image as ImageIcon, Minus, MoreHorizontal, RectangleHorizontal, Search, Square, Trash2, Upload, UserRound } from 'lucide-react';
 
 export const TEXT_PRESETS = [
   { label: 'Заголовок', el: { text: 'Заголовок', fontFamily: 'Montserrat', fontSize: 96, fontStyle: 'bold', width: 900 } },
@@ -115,6 +116,7 @@ export function CharactersPanel({ addImage, openPoser }) {
         Перетащите скин или нажмите
       </div>
       <input id="skin-file" type="file" accept="image/png" hidden onChange={(e) => byFile(e.target.files[0])} />
+      <button className="ghost small" style={{ marginTop: 6 }} onClick={() => useSkin('./skins/cnd-reporter.png', 'Репортёр CND')}>Нет скина под рукой? Взять пример «Репортёр CND»</button>
       {error && <div className="error">{error}</div>}
       {skin && (
         <div className="card" style={{ marginTop: 12, padding: 12 }}>
@@ -166,8 +168,44 @@ export function BrandPanel({ addImage, applyColor, applyFont }) {
       <div className="swatches">
         {BRAND_COLORS.map((c) => <button key={c.value} className="swatch" title={c.name} style={{ background: c.value }} onClick={() => applyColor(c.value)} />)}
       </div>
+      <FontsBlock applyFont={applyFont} />
+    </>
+  );
+}
+
+function FontsBlock({ applyFont }) {
+  const { all, custom } = useFonts();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const take = async (file) => {
+    if (!file) return;
+    setBusy(true); setMsg('');
+    try { const name = await importFontFile(file); setMsg(`Шрифт «${name}» добавлен для всей редакции`); applyFont(name, true); }
+    catch (e) { setMsg(e.message); }
+    setBusy(false);
+  };
+  return (
+    <>
       <label>Шрифты (к выделенному тексту)</label>
-      {FONTS.map((f) => <button key={f} className="text-preset" style={{ fontFamily: f }} onClick={() => applyFont(f)}>{f}</button>)}
+      <div className="drop" style={{ padding: 12 }} onClick={() => document.getElementById('font-file').click()}
+        onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); take(e.dataTransfer.files[0]); }}>
+        <Upload size={18} /><span className="small">{busy ? 'Загружаю…' : 'Импорт шрифта: TTF, OTF, WOFF'}</span>
+      </div>
+      <input id="font-file" type="file" accept={FONT_TYPES} hidden onChange={(e) => { take(e.target.files[0]); e.target.value = ''; }} />
+      {msg && <p className="small muted">{msg}</p>}
+      <div style={{ marginTop: 8 }}>
+        {all.map((f) => {
+          const own = custom.find((c) => c.family === f);
+          return (
+            <div key={f} className="row" style={{ marginBottom: 6 }}>
+              <button className="text-preset grow" style={{ fontFamily: `"${f}"`, marginBottom: 0 }} onClick={() => applyFont(f)}>
+                {f}{own && <span className="small muted" style={{ fontFamily: 'Inter' }}>свой · {own.author}</span>}
+              </button>
+              {own && <button className="icon ghost" title="Удалить шрифт" onClick={() => deleteFont(own.id)}><Trash2 size={14} /></button>}
+            </div>
+          );
+        })}
+      </div>
     </>
   );
 }

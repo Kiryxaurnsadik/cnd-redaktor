@@ -45,7 +45,8 @@ async function db() {
         watermarkStyle: 'corner',
         watermarkChoice: true,
         discordWebhook: '',
-        discordEvents: { review: true, approved: true, logins: false, tokens: false, exports: false },
+        discordChannels: [],
+        discordEvents: { logins: false, tokens: false, exports: false },
       },
     };
     save(d);
@@ -162,7 +163,7 @@ export const localApi = {
   async getSettings() {
     const d = await db(); const s = getSessionRaw();
     const out = { ...d.settings };
-    if (!['editor', 'admin'].includes(s?.role)) delete out.discordWebhook;
+    if (!['editor', 'admin'].includes(s?.role)) { delete out.discordWebhook; delete out.discordChannels; }
     return out;
   },
   async saveSettings(settings) {
@@ -182,18 +183,9 @@ export const localApi = {
   async saveWork(work) {
     const s = requireSession(); const d = await db();
     const i = d.works.findIndex((w) => w.id === work.id);
-    const prevStatus = i >= 0 ? d.works[i].status : 'draft';
-    if (['approved', 'published'].includes(work.status) && work.status !== prevStatus && !['editor', 'admin'].includes(s.role)) {
-      throw new Error('Одобрить работу может только редактор');
-    }
     const rec = { status: 'draft', ...(i >= 0 ? d.works[i] : { author: s.nickname, createdAt: Date.now() }), ...work, updatedAt: Date.now() };
     if (i >= 0) d.works[i] = rec; else d.works.unshift(rec);
     save(d);
-    if (rec.status !== prevStatus) {
-      const t = rec.title || 'Без названия';
-      const msg = { review: ['review', `📝 **${rec.author}** отправил(а) на проверку «${t}»`], approved: ['approved', `✅ Работа «${t}» (${rec.author}) одобрена. Проверил(а): ${s.nickname}`], returned: ['review', `↩️ Работа «${t}» (${rec.author}) возвращена на доработку`] }[rec.status];
-      if (msg) notify(d.settings, msg[0], msg[1]);
-    }
     return rec;
   },
   async deleteWork(id) { requireSession(); const d = await db(); d.works = d.works.filter((w) => w.id !== id); save(d); },
@@ -231,4 +223,40 @@ export const localApi = {
     return rec;
   },
   async listExports() { requireManager(); return (await db()).exports; },
+
+  // ---- свои шрифты
+  async listFonts() { requireSession(); return (await db()).fonts || []; },
+  async saveFont({ family, data }) {
+    const s = requireSession(); const d = await db(); d.fonts = d.fonts || [];
+    if (data.length > 4200000) throw new Error('Файл шрифта больше 3 МБ');
+    const rec = { id: uid(), family: family.trim(), author: s.nickname, data, createdAt: Date.now() };
+    d.fonts = [rec, ...d.fonts.filter((f) => f.family !== rec.family)];
+    save(d); return rec;
+  },
+  async deleteFont(id) {
+    const s = requireSession(); const d = await db();
+    d.fonts = (d.fonts || []).filter((f) => !(f.id === id && (f.author === s.nickname || ['editor', 'admin'].includes(s.role))));
+    save(d);
+  },
+
+  // ---- лента архива
+  async archiveAdd(item) {
+    const s = requireSession(); const d = await db(); d.archive = d.archive || [];
+    const old = item.workId && d.archive.find((a) => a.workId === item.workId && a.author === s.nickname);
+    const rec = { ...(old || { id: uid() }), ...item, author: s.nickname, at: Date.now() };
+    d.archive = [rec, ...d.archive.filter((a) => a.id !== rec.id)];
+    save(d); const { image, ...meta } = rec; return meta;
+  },
+  async archiveList({ q = '', before = null, limit = 40 } = {}) {
+    requireSession(); const d = await db();
+    const ql = q.toLowerCase();
+    return (d.archive || []).filter((a) => (!before || a.at < before) && (!ql || `${a.title} ${a.author}`.toLowerCase().includes(ql)))
+      .slice(0, limit).map(({ image, ...meta }) => meta);
+  },
+  async archiveGet(id) { requireSession(); return (await db()).archive?.find((a) => a.id === id) || null; },
+  async archiveDelete(id) {
+    const s = requireSession(); const d = await db();
+    d.archive = (d.archive || []).filter((a) => !(a.id === id && (a.author === s.nickname || ['editor', 'admin'].includes(s.role))));
+    save(d);
+  },
 };

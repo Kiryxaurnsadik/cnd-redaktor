@@ -89,7 +89,8 @@ insert into cnd_settings (id, data) values (1, jsonb_build_object(
   'watermarkStyle','corner',
   'watermarkChoice',true,
   'discordWebhook','',
-  'discordEvents', jsonb_build_object('review',true,'approved',true,'logins',false,'tokens',false,'exports',false),
+  'discordChannels', '[]'::jsonb,
+  'discordEvents', jsonb_build_object('logins',false,'tokens',false,'exports',false),
   'positions', jsonb_build_array(
     jsonb_build_object('name','стажер','role','intern'),
     jsonb_build_object('name','журналист','role','journalist'),
@@ -158,16 +159,16 @@ create or replace function cnd_token_json(t cnd_tokens) returns jsonb language s
 $$;
 
 -- ---------- первый админ ----------
--- Один раз: select cnd_bootstrap_admin('ВашНик');  → вернёт токен главного админа на 42 часа.
+-- select cnd_bootstrap_admin('ВашНик');  → новый токен главного админа на 42 часа (можно повторять).
 create or replace function cnd_bootstrap_admin(p_nickname text) returns text
 language plpgsql security definer set search_path = public, extensions as $$
+-- Выдаёт новый админ-токен на 42 часа. Вызывается только из SQL Editor (у сайта нет прав),
+-- поэтому можно запускать сколько угодно раз: например, если старый код потерялся.
 declare code text := cnd_gen_code();
 begin
-  if exists (select 1 from cnd_tokens where role = 'admin' and not revoked and (expires_at is null or expires_at > now())) then
-    raise exception 'Активный админ уже есть — выдайте токен через админку';
-  end if;
+  if coalesce(trim(p_nickname), '') = '' then raise exception 'Укажите ник: select cnd_bootstrap_admin(''ВашНик'');'; end if;
   insert into cnd_tokens (hash, code_hint, nickname, role, note, expires_at, issued_by)
-  values (cnd_hash(code), right(code, 4), p_nickname, 'admin', 'первый админ', now() + interval '42 hours', 'система');
+  values (cnd_hash(code), right(code, 4), trim(p_nickname), 'admin', 'выдан из SQL Editor', now() + interval '42 hours', 'система');
   return code;
 end $$;
 revoke execute on function cnd_bootstrap_admin(text) from public, anon, authenticated;
@@ -310,7 +311,7 @@ language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session); d jsonb := (select data from cnd_settings where id = 1);
 begin
   -- адрес вебхука видят только редакторы и админы, остальным он не нужен
-  if s.role not in ('editor','admin') then d := d - 'discordWebhook'; end if;
+  if s.role not in ('editor','admin') then d := d - 'discordWebhook' - 'discordChannels'; end if;
   return d;
 end $$;
 
@@ -350,29 +351,15 @@ end $$;
 
 create or replace function cnd_save_work(p_session text, p_work jsonb) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare s cnd_sessions := cnd_session(p_session); w cnd_works; new_status text := coalesce(p_work->>'status', 'draft'); old_status text;
+declare s cnd_sessions := cnd_session(p_session); w cnd_works;
 begin
   select * into w from cnd_works where id = p_work->>'id';
-  old_status := case when found then w.status end;
   if found and w.author <> s.nickname and s.role not in ('editor','admin') then raise exception 'Чужая работа'; end if;
-  -- одобрять и публиковать могут только редакторы
-  if new_status in ('approved','published') and s.role not in ('editor','admin') and (not found or w.status <> new_status) then
-    raise exception 'Одобрить работу может только редактор';
-  end if;
   insert into cnd_works (id, author, title, status, thumb, doc)
-  values (p_work->>'id', s.nickname, p_work->>'title', new_status, p_work->>'thumb', p_work->'doc')
-  on conflict (id) do update set title = coalesce(excluded.title, cnd_works.title), status = excluded.status,
+  values (p_work->>'id', s.nickname, p_work->>'title', 'draft', p_work->>'thumb', p_work->'doc')
+  on conflict (id) do update set title = coalesce(excluded.title, cnd_works.title),
     thumb = coalesce(excluded.thumb, cnd_works.thumb), doc = coalesce(excluded.doc, cnd_works.doc), updated_at = now()
   returning * into w;
-  if old_status is distinct from new_status then
-    if new_status = 'review' then
-      perform cnd_discord('review', format('📝 **%s** отправил(а) на проверку «%s»', w.author, coalesce(w.title, 'Без названия')));
-    elsif new_status in ('approved', 'published') then
-      perform cnd_discord('approved', format('✅ Работа «%s» (%s) одобрена. Проверил(а): %s', coalesce(w.title, 'Без названия'), w.author, s.nickname));
-    elsif new_status = 'returned' then
-      perform cnd_discord('review', format('↩️ Работа «%s» (%s) возвращена на доработку', coalesce(w.title, 'Без названия'), w.author));
-    end if;
-  end if;
   return cnd_work_json(w, false);
 end $$;
 
@@ -451,3 +438,111 @@ end $$;
 
 -- Служебные функции не должны вызываться с сайта напрямую
 revoke execute on function cnd_session(text), cnd_manager(text) from public, anon, authenticated;
+
+-- ---------- свои шрифты (общие для всей фракции) ----------
+create table if not exists cnd_fonts (
+  id uuid primary key default gen_random_uuid(),
+  family text not null unique,
+  author text,
+  data text not null,            -- файл шрифта как dataURL (ttf/otf/woff/woff2), до ~3 МБ
+  created_at timestamptz not null default now()
+);
+alter table cnd_fonts enable row level security;
+
+create or replace function cnd_list_fonts(p_session text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform cnd_session(p_session);
+  return coalesce((select jsonb_agg(jsonb_build_object('id', f.id, 'family', f.family, 'author', f.author, 'data', f.data,
+    'createdAt', (extract(epoch from f.created_at) * 1000)::bigint) order by f.family) from cnd_fonts f), '[]'::jsonb);
+end $$;
+
+create or replace function cnd_save_font(p_session text, p_family text, p_data text) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare s cnd_sessions := cnd_session(p_session); f cnd_fonts;
+begin
+  if coalesce(trim(p_family), '') = '' then raise exception 'Укажите название шрифта'; end if;
+  if length(p_data) > 4200000 then raise exception 'Файл шрифта больше 3 МБ'; end if;
+  if p_data !~ '^data:(font|application)/' then raise exception 'Это не файл шрифта'; end if;
+  insert into cnd_fonts (family, author, data) values (trim(p_family), s.nickname, p_data)
+  on conflict (family) do update set data = excluded.data, author = excluded.author, created_at = now()
+  returning * into f;
+  return jsonb_build_object('id', f.id, 'family', f.family, 'author', f.author);
+end $$;
+
+create or replace function cnd_delete_font(p_session text, p_id uuid) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare s cnd_sessions := cnd_session(p_session);
+begin
+  delete from cnd_fonts where id = p_id and (author = s.nickname or s.role in ('editor','admin'));
+end $$;
+
+-- ---------- лента архива: готовые работы, видна всем сотрудникам ----------
+create table if not exists cnd_archive (
+  id uuid primary key default gen_random_uuid(),
+  author text not null,
+  title text,
+  work_id text,
+  thumb text,                    -- маленькое превью JPEG
+  image text,                    -- картинка с водяным знаком (JPEG до ~1 МБ)
+  width int, height int,
+  created_at timestamptz not null default now()
+);
+create index if not exists cnd_archive_created on cnd_archive (created_at desc);
+alter table cnd_archive enable row level security;
+
+create or replace function cnd_archive_json(a cnd_archive, with_image boolean) returns jsonb language sql stable as $$
+  select jsonb_build_object('id', a.id, 'author', a.author, 'title', a.title, 'workId', a.work_id, 'thumb', a.thumb,
+    'width', a.width, 'height', a.height, 'at', (extract(epoch from a.created_at) * 1000)::bigint)
+    || case when with_image then jsonb_build_object('image', a.image) else '{}'::jsonb end
+$$;
+
+create or replace function cnd_archive_add(p_session text, p_item jsonb) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare s cnd_sessions := cnd_session(p_session); a cnd_archive;
+begin
+  if length(coalesce(p_item->>'image', '')) > 2800000 then raise exception 'Картинка для архива слишком большая'; end if;
+  -- одна запись на работу: повторное добавление обновляет картинку
+  if p_item->>'workId' is not null then
+    select * into a from cnd_archive where work_id = p_item->>'workId' and author = s.nickname;
+  end if;
+  if found then
+    update cnd_archive set title = p_item->>'title', thumb = p_item->>'thumb', image = p_item->>'image',
+      width = (p_item->>'width')::int, height = (p_item->>'height')::int, created_at = now()
+    where id = a.id returning * into a;
+  else
+    insert into cnd_archive (author, title, work_id, thumb, image, width, height)
+    values (s.nickname, p_item->>'title', p_item->>'workId', p_item->>'thumb', p_item->>'image',
+      (p_item->>'width')::int, (p_item->>'height')::int)
+    returning * into a;
+  end if;
+  return cnd_archive_json(a, false);
+end $$;
+
+create or replace function cnd_archive_list(p_session text, p_q text, p_before bigint, p_limit int) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform cnd_session(p_session);
+  return coalesce((select jsonb_agg(cnd_archive_json(a, false) order by a.created_at desc) from (
+    select * from cnd_archive a
+    where (p_before is null or a.created_at < to_timestamp(p_before / 1000.0))
+      and (coalesce(p_q, '') = '' or a.title ilike '%' || p_q || '%' or a.author ilike '%' || p_q || '%')
+    order by a.created_at desc limit least(coalesce(p_limit, 40), 100)) a), '[]'::jsonb);
+end $$;
+
+create or replace function cnd_archive_get(p_session text, p_id uuid) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare a cnd_archive;
+begin
+  perform cnd_session(p_session);
+  select * into a from cnd_archive where id = p_id;
+  if not found then return null; end if;
+  return cnd_archive_json(a, true);
+end $$;
+
+create or replace function cnd_archive_delete(p_session text, p_id uuid) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare s cnd_sessions := cnd_session(p_session);
+begin
+  delete from cnd_archive where id = p_id and (author = s.nickname or s.role in ('editor','admin'));
+end $$;

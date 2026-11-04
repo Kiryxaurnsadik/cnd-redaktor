@@ -4,11 +4,16 @@ import Login from './components/Login.jsx';
 import Home from './components/Home.jsx';
 import Admin from './components/Admin.jsx';
 import Editor from './components/Editor.jsx';
+import ArchivePage from './components/Archive.jsx';
+import { HelpModal } from './components/Help.jsx';
+import { getPrefs } from './lib/prefs.js';
+import { loadCustomFonts } from './lib/fonts.js';
 import { formatLeft } from './lib/util.js';
 
 export default function App() {
   const [session, setSession] = useState(undefined);
   const [screen, setScreen] = useState({ name: 'home' });
+  const [helpOpen, setHelpOpen] = useState(false);
 
   useEffect(() => { api.restore().then(setSession).catch(() => setSession(null)); }, []);
 
@@ -21,8 +26,14 @@ export default function App() {
     return () => clearInterval(t);
   }, [session]);
 
+  // Свои шрифты фракции нужны и в превью, и в редакторе
+  useEffect(() => { if (session && !session.pending) loadCustomFonts(); }, [session?.id, session?.pending]);
+
   if (session === undefined) return <div className="login-wrap" />;
-  if (!session) return <Login onLogin={setSession} />;
+  // После удачного входа сразу показываем инструкцию (можно выключить в «Моих настройках»)
+  const onLogin = (s) => { setSession(s); if (!s.pending && getPrefs().autoHelp) setHelpOpen(true); };
+
+  if (!session) return <Login onLogin={onLogin} />;
 
   const logout = async () => { await api.logout(); setSession(null); setScreen({ name: 'home' }); };
 
@@ -44,7 +55,14 @@ export default function App() {
   const left = session.expiresAt ? formatLeft(session.expiresAt - Date.now()) : 'без срока';
   const common = { session, logout, left, go: setScreen };
 
-  if (screen.name === 'editor') return <Editor {...common} open={screen} />;
-  if (screen.name === 'admin') return <Admin {...common} />;
-  return <Home {...common} />;
+  const page = screen.name === 'editor' ? <Editor {...common} open={screen} />
+    : screen.name === 'admin' ? <Admin {...common} />
+      : screen.name === 'archive' ? <ArchivePage {...common} />
+        : <Home {...common} />;
+  return (
+    <>
+      {page}
+      {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+    </>
+  );
 }

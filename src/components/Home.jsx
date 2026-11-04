@@ -3,13 +3,12 @@ import { api } from '../api/index.js';
 import TopBar from './TopBar.jsx';
 import Countdown from './Countdown.jsx';
 import { Credit, HelpModal } from './Help.jsx';
-import { FilePlus2, FolderOpen, LayoutTemplate, Lightbulb, Search, Shield, Trash2, X } from 'lucide-react';
+import { Archive as ArchiveIcon, BookOpen, FilePlus2, FolderOpen, LayoutTemplate, Lightbulb, Search, Shield, Trash2, X } from 'lucide-react';
+import { ArchiveCard, ArchiveViewer, useArchive } from './Archive.jsx';
 import { OFFICIAL_TEMPLATES, SIZES, blankDoc, withIds } from '../lib/templates.js';
 import { docThumb } from '../lib/thumb.js';
 import { canManage, formatDate, roleLabel } from '../lib/util.js';
 
-const STATUS = { draft: ['Черновик', ''], review: ['На проверке', 'warn'], approved: ['Одобрено', 'ok'], returned: ['На доработке', 'bad'], published: ['Опубликовано', 'blue'] };
-export const statusBadge = (s) => { const [t, c] = STATUS[s] || STATUS.draft; return <span className={`badge ${c}`}>{t}</span>; };
 
 function Thumb({ doc, src, k }) {
   const [url, setUrl] = useState(src || null);
@@ -55,16 +54,19 @@ export default function Home({ session, logout, left, go }) {
   };
 
   const [helpOpen, setHelpOpen] = useState(false);
+  const arch = useArchive('', 10);
+  const [archOpen, setArchOpen] = useState(null);
+  useEffect(() => { arch.load(true); }, []);
   const [tipHidden, setTipHidden] = useState(() => { try { return localStorage.getItem('cnd_tip_home') === '1'; } catch { return false; } });
   const hideTip = () => { setTipHidden(true); try { localStorage.setItem('cnd_tip_home', '1'); } catch { /* ок */ } };
   const hour = new Date().getHours();
   const hello = hour < 5 ? 'Доброй ночи' : hour < 12 ? 'Доброе утро' : hour < 18 ? 'Добрый день' : 'Добрый вечер';
-  const inReview = works.filter((w) => w.status === 'review').length;
 
   return (
     <>
       <TopBar session={session} left={left} logout={logout} help="editor">
         <span className="brand-name">CND Редактор</span>
+        <button onClick={() => go({ name: 'archive' })}><ArchiveIcon size={16} /> Архив</button>
         {canManage(session.role) && <button onClick={() => go({ name: 'admin' })}><Shield size={16} /> Админка</button>}
       </TopBar>
       <div className="page">
@@ -75,7 +77,11 @@ export default function Home({ session, logout, left, go }) {
             <p>{roleLabel(session.role)} редакции California NewsDay. Начните с шаблона или пустого листа.</p>
           </div>
           <div className="stat"><b><Countdown to={session.expiresAt} /></b><span>до конца доступа</span></div>
-          <div className="stat"><b>{works.length}</b><span>{inReview ? `работ, ${inReview} на проверке` : 'моих работ'}</span></div>
+          <div className="stat"><b>{works.length}</b><span>моих работ</span></div>
+          <div className="hero-actions">
+            <button onClick={() => setHelpOpen(true)}><BookOpen size={16} /> Инструкция</button>
+            <button onClick={() => go({ name: 'archive' })}><ArchiveIcon size={16} /> Лента архива</button>
+          </div>
         </div>
         {!tipHidden && (
           <div className="tip-card">
@@ -130,7 +136,7 @@ export default function Home({ session, logout, left, go }) {
             <div key={w.id} className="tile" onClick={() => go({ name: 'editor', workId: w.id })}>
               <Thumb src={w.thumb} />
               <div className="meta">
-                <div className="row"><b className="grow">{w.title || 'Без названия'}</b>{statusBadge(w.status)}</div>
+                <b>{w.title || 'Без названия'}</b>
                 <div className="muted">Изменено {formatDate(w.updatedAt)}</div>
                 <button className="ghost danger small" style={{ justifySelf: 'start' }} onClick={(e) => { e.stopPropagation(); removeWork(w); }}><Trash2 size={14} />{armed === w.id ? 'Точно удалить?' : 'Удалить'}</button>
               </div>
@@ -138,6 +144,12 @@ export default function Home({ session, logout, left, go }) {
           ))}
           {!works.length && <p className="muted">Пока пусто. Начните с шаблона или пустого размера.</p>}
         </div>
+        <div className="section"><h2><ArchiveIcon size={20} /> Свежее в архиве</h2><button className="ghost" onClick={() => go({ name: 'archive' })}>Вся лента →</button></div>
+        <div className="grid arch-grid">
+          {arch.items.map((a) => <ArchiveCard key={a.id} a={a} onOpen={setArchOpen} />)}
+        </div>
+        {!arch.items.length && <p className="muted">Пока пусто. Скачайте или скопируйте готовую работу, и она появится здесь для всей редакции.</p>}
+        {archOpen && <ArchiveViewer item={archOpen} session={session} go={go} flash={(m) => setError(m)} onClose={() => setArchOpen(null)} onDeleted={(id) => arch.setItems(arch.items.filter((x) => x.id !== id))} />}
         <div className="footer"><Credit className="grow" /><span>California NewsDay · Real news. California.</span></div>
       </div>
     </>
