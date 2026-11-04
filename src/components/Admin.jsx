@@ -1,9 +1,12 @@
+import { ArrowLeft, ClipboardCheck, ImageDown, KeyRound, ScrollText, Settings2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/index.js';
 import TopBar from './TopBar.jsx';
 import { statusBadge } from './Home.jsx';
-import { ROLES, TOKEN_HOURS, formatDate, formatLeft, isAdmin, normalizeNick, roleLabel } from '../lib/util.js';
-import { readMark } from '../lib/watermark.js';
+import { DURATION_PRESETS, MAX_TOKEN_HOURS, ROLES, TOKEN_HOURS, formatDate, formatHours, formatLeft, isAdmin, normalizeNick, roleLabel } from '../lib/util.js';
+import Countdown from './Countdown.jsx';
+import { WATERMARK_STYLES, applyWatermark, readMark } from '../lib/watermark.js';
+import { DISCORD_EVENTS, isWebhook, postToDiscord } from '../lib/discord.js';
 
 function useNow(ms = 30000) {
   const [now, setNow] = useState(Date.now());
@@ -13,7 +16,8 @@ function useNow(ms = 30000) {
 
 function Tokens({ session, flash }) {
   const [list, setList] = useState([]);
-  const [form, setForm] = useState({ nickname: '', role: 'intern', hours: TOKEN_HOURS, note: '', group: false, maxUses: 10 });
+  const [form, setForm] = useState({ nickname: '', role: 'intern', amount: TOKEN_HOURS, unit: 'h', note: '', group: false, maxUses: 10 });
+  const hours = Math.min(MAX_TOKEN_HOURS, Math.max(1, Math.round((Number(form.amount) || 0) * (form.unit === 'd' ? 24 : 1)))) || TOKEN_HOURS;
   const [issued, setIssued] = useState(null);
   const now = useNow();
   const reload = () => api.listTokens().then(setList).catch((e) => flash(e.message));
@@ -25,13 +29,13 @@ function Tokens({ session, flash }) {
     if (!form.group && !form.nickname.trim()) { flash('Укажите ник, на который выдаётся токен'); return; }
     try {
       const t = await api.issueToken({
-        nickname: form.group ? null : form.nickname, role: form.role, hours: Number(form.hours) || TOKEN_HOURS,
+        nickname: form.group ? null : form.nickname, role: form.role, hours,
         note: form.note, maxUses: form.group ? Number(form.maxUses) || null : null,
       });
       setIssued(t); setForm({ ...form, nickname: '', note: '' }); reload();
     } catch (err) { flash(err.message); }
   };
-  const message = issued && `Токен доступа CND: ${issued.code}\nНик: ${issued.nickname || 'любой (групповой)'} · Роль: ${roleLabel(issued.role)}\nДействует до ${formatDate(issued.expiresAt)}\nВход: ${location.origin + location.pathname}`;
+  const message = issued && `Токен доступа CND: ${issued.code}\nНик: ${issued.nickname || 'любой (групповой)'} · Роль: ${roleLabel(issued.role)}\nДействует до ${formatDate(issued.expiresAt)} (${formatLeft(issued.expiresAt - Date.now())})\nВход: ${location.origin + location.pathname}`;
 
   return (
     <div className="row wrap" style={{ alignItems: 'flex-start', gap: 16 }}>
@@ -46,8 +50,21 @@ function Tokens({ session, flash }) {
         <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
           {roles.map(([k, r]) => <option key={k} value={k}>{r.label}</option>)}
         </select>
-        <label>Срок, часов</label>
-        <input type="number" min="1" max="720" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} />
+        <label>Срок действия</label>
+        <div className="row">
+          <input type="number" min="1" step="1" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} style={{ width: 110 }} />
+          <select value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
+            <option value="h">часов</option>
+            <option value="d">дней</option>
+          </select>
+        </div>
+        <div className="chips">
+          {DURATION_PRESETS.map((h) => (
+            <button type="button" key={h} className={`chip ${hours === h ? 'on' : ''}`}
+              onClick={() => setForm({ ...form, amount: h % 24 || h === 42 ? h : h / 24, unit: h % 24 || h === 42 ? 'h' : 'd' })}>{formatHours(h)}</button>
+          ))}
+        </div>
+        <p className="small muted">Итого: {formatHours(hours)}, до {formatDate(Date.now() + hours * 3600000)}. Максимум 90 дней.</p>
         <label>Заметка</label>
         <input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="например: новый стажёр" />
         <button className="primary" style={{ marginTop: 12, width: '100%' }}>Создать токен</button>
@@ -65,22 +82,23 @@ function Tokens({ session, flash }) {
       <div className="card grow table-wrap" style={{ minWidth: 320 }}>
         <h3>Токены</h3>
         <table>
-          <thead><tr><th>Ник</th><th>Роль</th><th>Код</th><th>Осталось</th><th>Входов</th><th>Выдал</th><th /></tr></thead>
+          <thead><tr><th>Ник</th><th>Роль</th><th>Код</th><th>Осталось</th><th>До</th><th>Входов</th><th>Выдал</th><th /></tr></thead>
           <tbody>
             {list.map((t) => {
               const leftMs = t.expiresAt ? t.expiresAt - now : Infinity;
               const status = t.revoked ? <span className="badge bad">отозван</span> : leftMs <= 0 ? <span className="badge">истёк</span>
-                : leftMs < 6 * 3600000 ? <span className="badge warn">{formatLeft(leftMs)}</span> : <span className="badge ok">{t.expiresAt ? formatLeft(leftMs) : 'без срока'}</span>;
+                : <Countdown to={t.expiresAt} className="badge" />;
               return (
                 <tr key={t.id}>
                   <td>{t.nickname || <i className="muted">групповой</i>}<div className="muted small">{t.note}</div></td>
                   <td>{roleLabel(t.role)}</td>
                   <td className="muted small">…{t.codeHint || '----'}</td>
                   <td>{status}</td>
+                  <td className="small muted">{formatDate(t.expiresAt)}</td>
                   <td>{t.uses}{t.maxUses ? ` / ${t.maxUses}` : ''}</td>
                   <td className="small">{t.issuedBy}<div className="muted">{formatDate(t.createdAt)}</div></td>
                   <td className="row">
-                    <button className="small" onClick={() => api.extendToken(t.id, TOKEN_HOURS).then(reload)}>+42 ч</button>
+                    {[42, 24, 168].map((h) => <button key={h} className="small" title={`Продлить на ${formatHours(h)}`} onClick={() => api.extendToken(t.id, h).then(reload).then(() => flash(`Продлено на ${formatHours(h)}`))}>+{formatHours(h)}</button>)}
                     {!t.revoked && <button className="small danger" onClick={() => api.revokeToken(t.id).then(reload)}>Отозвать</button>}
                   </td>
                 </tr>
@@ -216,30 +234,82 @@ function Exports({ flash }) {
   );
 }
 
+function WatermarkPreview({ s }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const c = document.createElement('canvas'); c.width = 800; c.height = 500;
+      const ctx = c.getContext('2d');
+      const g = ctx.createLinearGradient(0, 0, 800, 500); g.addColorStop(0, '#2c4a73'); g.addColorStop(1, '#9fb8d6');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, 800, 500);
+      ctx.fillStyle = '#ffffff'; ctx.font = '700 46px Montserrat, Inter, sans-serif'; ctx.fillText('Пример работы', 50, 110);
+      ctx.font = '400 24px Inter, sans-serif'; ctx.fillText('Так знак будет выглядеть на картинке', 50, 150);
+      await applyWatermark(c, { author: 'Kirill_Burnside', opacity: s.watermarkOpacity, corner: s.watermarkCorner, style: s.watermarkStyle || 'corner' });
+      if (alive) setUrl(c.toDataURL('image/jpeg', 0.85));
+    })();
+    return () => { alive = false; };
+  }, [s.watermarkOpacity, s.watermarkCorner, s.watermarkStyle]);
+  return url ? <img src={url} alt="Пример водяного знака" style={{ width: '100%', borderRadius: 8, marginTop: 10, border: '1px solid var(--line)' }} /> : null;
+}
+
 function Settings({ flash }) {
   const [s, setS] = useState(null);
-  useEffect(() => { api.getSettings().then(setS); }, []);
+  const [testing, setTesting] = useState(false);
+  useEffect(() => { api.getSettings().then((d) => setS({ watermarkStyle: 'corner', watermarkChoice: true, discordWebhook: '', discordEvents: {}, ...d })); }, []);
   if (!s) return null;
   const save = () => api.saveSettings(s).then(() => flash('Настройки сохранены')).catch((e) => flash(e.message));
   const setPos = (i, patch) => setS({ ...s, positions: s.positions.map((p, j) => (j === i ? { ...p, ...patch } : p)) });
+  const test = async () => {
+    setTesting(true);
+    try { await postToDiscord(s.discordWebhook, { content: '✅ CND Редактор подключён. Сюда будут приходить уведомления.' }); flash('Тестовое сообщение отправлено'); }
+    catch (e) { flash(e.message); }
+    setTesting(false);
+  };
   return (
     <div className="row wrap" style={{ alignItems: 'flex-start', gap: 16 }}>
-      <div className="card" style={{ width: 360 }}>
+      <div className="card" style={{ width: 380 }}>
         <h3>Вход</h3>
         <label>Режим проверки удостоверений</label>
         <select value={s.loginMode} onChange={(e) => setS({ ...s, loginMode: e.target.value })}>
           <option value="instant">Вход сразу, проверка позже</option>
           <option value="approval">Вход только после одобрения админом</option>
         </select>
+        <p className="small muted">Админы входят без удостоверения и без одобрения.</p>
         <h3 style={{ marginTop: 18 }}>Водяной знак</h3>
-        <label>Непрозрачность логотипа: {Math.round(s.watermarkOpacity * 100)}%</label>
-        <input type="range" min="0.3" max="1" step="0.05" value={s.watermarkOpacity} onChange={(e) => setS({ ...s, watermarkOpacity: Number(e.target.value) })} />
-        <label>Угол</label>
-        <select value={s.watermarkCorner} onChange={(e) => setS({ ...s, watermarkCorner: e.target.value })}>
-          <option value="br">Правый нижний</option><option value="bl">Левый нижний</option>
-          <option value="tr">Правый верхний</option><option value="tl">Левый верхний</option>
+        <label>Вид по умолчанию</label>
+        <select value={s.watermarkStyle} onChange={(e) => setS({ ...s, watermarkStyle: e.target.value })}>
+          {Object.entries(WATERMARK_STYLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
+        <label>Непрозрачность: {Math.round(s.watermarkOpacity * 100)}%</label>
+        <input type="range" min="0.3" max="1" step="0.05" value={s.watermarkOpacity} onChange={(e) => setS({ ...s, watermarkOpacity: Number(e.target.value) })} />
+        <label>Положение</label>
+        <select value={s.watermarkCorner} onChange={(e) => setS({ ...s, watermarkCorner: e.target.value })}>
+          <option value="br">Справа снизу</option><option value="bl">Слева снизу</option>
+          <option value="tr">Справа сверху</option><option value="tl">Слева сверху</option>
+        </select>
+        <label className="row"><input type="checkbox" style={{ width: 'auto' }} checked={!!s.watermarkChoice} onChange={(e) => setS({ ...s, watermarkChoice: e.target.checked })} /> Сотрудники могут сами выбрать вид знака</label>
+        <WatermarkPreview s={s} />
+        <p className="small muted">Убрать знак нельзя: он ставится при каждом скачивании и копировании.</p>
         <button className="primary" style={{ marginTop: 14 }} onClick={save}>Сохранить</button>
+      </div>
+      <div className="card" style={{ width: 380 }}>
+        <h3>Discord</h3>
+        <p className="small muted">Discord → настройки канала → Интеграции → Вебхуки → «Новый вебхук» → «Копировать URL».</p>
+        <label>Ссылка вебхука</label>
+        <input value={s.discordWebhook} onChange={(e) => setS({ ...s, discordWebhook: e.target.value.trim() })} placeholder="https://discord.com/api/webhooks/…" />
+        {s.discordWebhook && !isWebhook(s.discordWebhook) && <div className="error">Ссылка должна начинаться с https://discord.com/api/webhooks/</div>}
+        <label>О чём сообщать в канал</label>
+        {Object.entries(DISCORD_EVENTS).map(([k, v]) => (
+          <label key={k} className="row" style={{ margin: '6px 0' }}>
+            <input type="checkbox" style={{ width: 'auto' }} checked={!!s.discordEvents?.[k]} onChange={(e) => setS({ ...s, discordEvents: { ...s.discordEvents, [k]: e.target.checked } })} /> {v}
+          </label>
+        ))}
+        <p className="small muted">Редакторы и админы смогут отправлять готовые работы картинкой в этот канал кнопкой «В Discord» в редакторе. Остальные сотрудники ссылку не видят.</p>
+        <div className="row" style={{ marginTop: 10 }}>
+          <button className="primary" onClick={save}>Сохранить</button>
+          <button onClick={test} disabled={!isWebhook(s.discordWebhook) || testing}>{testing ? 'Отправляю…' : 'Проверить'}</button>
+        </div>
       </div>
       <div className="card grow">
         <h3>Должности → доступ</h3>
@@ -269,15 +339,15 @@ export default function Admin({ session, logout, left, go }) {
   const [tab, setTab] = useState('tokens');
   const [toast, setToast] = useState('');
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2500); };
-  const tabs = [['tokens', 'Токены'], ['logins', 'Журнал входов'], ['review', 'Проверка работ'], ['exports', 'Экспорты'], ...(isAdmin(session.role) ? [['settings', 'Настройки']] : [])];
+  const tabs = [['tokens', 'Токены', KeyRound], ['logins', 'Журнал входов', ScrollText], ['review', 'Проверка работ', ClipboardCheck], ['exports', 'Экспорты', ImageDown], ...(isAdmin(session.role) ? [['settings', 'Настройки', Settings2]] : [])];
   return (
     <>
-      <TopBar session={session} left={left} logout={logout}>
-        <button onClick={() => go({ name: 'home' })}>← К работам</button>
-        <b>Админка</b>
+      <TopBar session={session} left={left} logout={logout} help="admin">
+        <button onClick={() => go({ name: 'home' })}><ArrowLeft size={16} /> К работам</button>
+        <span className="brand-name">Админка</span>
       </TopBar>
       <div className="page" style={{ maxWidth: 1400 }}>
-        <div className="tabs">{tabs.map(([k, t]) => <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{t}</button>)}</div>
+        <div className="tabs">{tabs.map(([k, t, Ico]) => <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}><Ico size={16} /> {t}</button>)}</div>
         {tab === 'tokens' && <Tokens session={session} flash={flash} />}
         {tab === 'logins' && <Logins flash={flash} />}
         {tab === 'review' && <Review go={go} flash={flash} />}

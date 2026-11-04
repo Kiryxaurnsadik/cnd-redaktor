@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowLeft, BadgeCheck, BookmarkPlus, Check, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, RotateCcw, Send, Shapes, Type, Undo2, UserRound, X } from 'lucide-react';
+import ThemeToggle from './ThemeToggle.jsx';
+import { HelpButton, TIPS } from './Help.jsx';
+import { Who } from './TopBar.jsx';
 import { api } from '../api/index.js';
 import CanvasStage from './CanvasStage.jsx';
 import PropsPanel from './PropsPanel.jsx';
@@ -6,13 +10,14 @@ import SkinPoser from './SkinPoser.jsx';
 import { BrandPanel, CharactersPanel, ElementsPanel, PhotosPanel, TemplatesPanel, TextPanel } from './Panels.jsx';
 import { statusBadge } from './Home.jsx';
 import { BRAND } from '../lib/brand.js';
-import { applyWatermark } from '../lib/watermark.js';
+import { WATERMARK_STYLES, applyWatermark } from '../lib/watermark.js';
+import { isWebhook, postToDiscord } from '../lib/discord.js';
 import { withIds } from '../lib/templates.js';
 import { canManage, compressImage, loadImage, roleLabel, uid } from '../lib/util.js';
 
 const RAIL = [
-  ['templates', '▦', 'Шаблоны'], ['text', 'T', 'Текст'], ['photos', '🖼', 'Фото'],
-  ['elements', '◆', 'Элементы'], ['characters', '☺', 'Персонажи'], ['brand', 'CN', 'Бренд'],
+  ['templates', LayoutTemplate, 'Шаблоны'], ['text', Type, 'Текст'], ['photos', ImageIcon, 'Фото'],
+  ['elements', Shapes, 'Элементы'], ['characters', UserRound, 'Персонажи'], ['brand', BadgeCheck, 'Бренд'],
 ];
 
 export default function Editor({ session, left, go, open }) {
@@ -32,18 +37,22 @@ export default function Editor({ session, left, go, open }) {
   const [exportOpts, setExportOpts] = useState({ format: 'png', mult: 1, quality: 0.92 });
   const [toast, setToast] = useState('');
   const [saved, setSaved] = useState('');
-  const [settings, setSettings] = useState({ watermarkOpacity: 0.85, watermarkCorner: 'br' });
+  const [settings, setSettings] = useState({ watermarkOpacity: 0.85, watermarkCorner: 'br', watermarkStyle: 'corner', watermarkChoice: true });
+  const [wmStyle, setWmStyle] = useState(null);
   const [fontTick, setFontTick] = useState(0);
   const history = useRef({ past: [], future: [] });
   const stageApi = useRef(null);
   const wsRef = useRef(null);
   const placeholderTarget = useRef(null);
 
+  const [tipIdx, setTipIdx] = useState(() => Math.floor(Math.random() * TIPS.length));
+  const [tipOn, setTipOn] = useState(() => { try { return localStorage.getItem('cnd_tips_off') !== '1'; } catch { return true; } });
+  const hideTips = () => { setTipOn(false); try { localStorage.setItem('cnd_tips_off', '1'); } catch { /* ок */ } };
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2600); };
 
   // ---- загрузка работы / шаблона
   useEffect(() => {
-    api.getSettings().then((s) => s && setSettings(s)).catch(() => {});
+    api.getSettings().then((s) => s && setSettings((p) => ({ ...p, ...s }))).catch(() => {});
     if (open.workId) {
       api.getWork(open.workId).then((w) => {
         if (!w) { flash('Работа не найдена'); go({ name: 'home' }); return; }
@@ -63,7 +72,7 @@ export default function Editor({ session, left, go, open }) {
   useEffect(() => {
     if (!doc) return;
     const fams = new Set(doc.elements.filter((e) => e.type === 'text').map((e) => `${e.fontStyle?.includes('italic') ? 'italic ' : ''}${e.fontStyle?.includes('bold') ? '700' : '400'} 32px "${e.fontFamily}"`));
-    Promise.all([...fams].map((f) => document.fonts.load(f).catch(() => {}))).then(() => setFontTick((t) => t + 1));
+    Promise.all([...fams].map((f) => document.fonts.load(f, 'АаЯя Aa').catch(() => {}))).then(() => setFontTick((t) => t + 1));
   }, [doc?.elements]);
 
   // ---- масштаб под окно
@@ -224,18 +233,19 @@ export default function Editor({ session, left, go, open }) {
 
   // ---- экспорт и копирование
   const isDraft = session.role === 'intern' && status !== 'approved';
+  const styleNow = (settings.watermarkChoice && wmStyle) || settings.watermarkStyle || 'corner';
   const renderFinal = async (format, mult) => {
     setEditingId(null);
     const canvas = stageApi.current.toCanvas(mult);
     let exportId = '';
     try {
-      const rec = await api.logExport({ workId, title, format, watermark: isDraft ? 'черновик' : 'логотип' });
+      const rec = await api.logExport({ workId, title, format, watermark: `${WATERMARK_STYLES[styleNow] || styleNow}${isDraft ? ' + черновик' : ''}` });
       exportId = rec?.id || '';
     } catch { /* экспорт всё равно делаем */ }
     const k = canvas.width / doc.width;
     const avoid = doc.elements.filter((e) => e.type === 'image' && /логотип/i.test(e.name || '') && e.visible !== false)
       .map((e) => ({ x: e.x * k, y: e.y * k, width: e.width * k, height: e.height * k }));
-    await applyWatermark(canvas, { draft: isDraft, author: session.nickname, exportId, opacity: settings.watermarkOpacity, corner: settings.watermarkCorner, avoid });
+    await applyWatermark(canvas, { draft: isDraft, author: session.nickname, exportId, opacity: settings.watermarkOpacity, corner: settings.watermarkCorner, style: styleNow, avoid });
     return canvas;
   };
   const toBlob = (canvas, type, q) => new Promise((r) => canvas.toBlob(r, type, q));
@@ -262,6 +272,19 @@ export default function Editor({ session, left, go, open }) {
     setExportOpen(false);
   };
 
+  const [sending, setSending] = useState(false);
+  const sendToDiscord = async () => {
+    setSending(true);
+    try {
+      const canvas = await renderFinal('discord', exportOpts.mult);
+      const blob = await toBlob(canvas, 'image/png');
+      await postToDiscord(settings.discordWebhook, { content: `📰 **${title || 'Без названия'}**\nАвтор: ${author}`, file: blob, filename: `${(title || 'cnd').replace(/[^\wа-яё-]+/gi, '_')}.png` });
+      flash('Работа отправлена в Discord');
+      setExportOpen(false);
+    } catch (e) { flash(e.message); }
+    setSending(false);
+  };
+
   const [tplForm, setTplForm] = useState(null);
   const saveAsTemplate = async () => {
     const name = tplForm.name.trim(); if (!name) { flash('Введите название шаблона'); return; }
@@ -282,25 +305,28 @@ export default function Editor({ session, left, go, open }) {
   return (
     <div className="editor">
       <div className="topbar">
-        <button onClick={async () => { await persist().catch(() => {}); go({ name: 'home' }); }}>← Работы</button>
+        <button onClick={async () => { await persist().catch(() => {}); go({ name: 'home' }); }} title="Сохранить и выйти к работам"><ArrowLeft size={16} /> Работы</button>
         <img className="logo" src={BRAND.iconWhite} alt="" />
         <input className="title" value={title} onChange={(e) => setTitle(e.target.value)} />
         {statusBadge(status)}
-        <span className="small" style={{ opacity: 0.7 }}>{saved}</span>
-        <button title="Отменить (Ctrl+Z)" onClick={undo}>↶</button>
-        <button title="Повторить (Ctrl+Shift+Z)" onClick={redo}>↷</button>
-        <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))} style={{ width: 90, background: 'rgba(255,255,255,.08)', color: '#fff', borderColor: 'rgba(255,255,255,.2)' }}>
-          {[0.5, 0.75, 1, 1.5, 2, 3].map((z) => <option key={z} value={z} style={{ color: '#000' }}>{Math.round(z * 100)}%</option>)}
+        <span className="saved">{saved}</span>
+        <span className="sep" />
+        <button className="icon" title="Отменить (Ctrl+Z)" aria-label="Отменить" onClick={undo}><Undo2 size={17} /></button>
+        <button className="icon" title="Повторить (Ctrl+Shift+Z)" aria-label="Повторить" onClick={redo}><Redo2 size={17} /></button>
+        <select className="zoom" title="Масштаб" value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
+          {[0.5, 0.75, 1, 1.5, 2, 3].map((z) => <option key={z} value={z}>{Math.round(z * 100)}%</option>)}
         </select>
         <div className="grow" />
-        <span className="who" title={`${session.nickname} · ${roleLabel(session.role)} · осталось ${left}`}>{author !== session.nickname ? `Автор: ${author}` : `${session.nickname} · ${left}`}</span>
-        {!canReview && ['draft', 'returned'].includes(status) && <button onClick={() => changeStatus('review')}>На проверку</button>}
-        {canReview && status !== 'approved' && <button onClick={() => changeStatus('approved')}>Одобрить</button>}
-        {canReview && status === 'review' && <button onClick={() => changeStatus('returned')}>Вернуть</button>}
-        <button onClick={() => setTplForm({ name: title, tags: '' })}>В шаблоны</button>
-        <button onClick={copyToClipboard} title="Ctrl+Shift+C">Копировать</button>
+        <Who compact session={session} label={author !== session.nickname ? `Автор: ${author}` : session.nickname} />
+        {!canReview && ['draft', 'returned'].includes(status) && <button onClick={() => changeStatus('review')} title="Редактор получит работу на проверку"><Send size={16} /> На проверку</button>}
+        {canReview && status !== 'approved' && <button onClick={() => changeStatus('approved')} title="Одобрить работу"><Check size={16} /> Одобрить</button>}
+        {canReview && status === 'review' && <button onClick={() => changeStatus('returned')} title="Вернуть автору на доработку"><RotateCcw size={16} /> Вернуть</button>}
+        <button onClick={() => setTplForm({ name: title, tags: '' })} title="Опубликовать дизайн как шаблон для коллег"><BookmarkPlus size={16} /> В шаблоны</button>
+        <button onClick={copyToClipboard} title="Копировать картинку в буфер (Ctrl+Shift+C)"><Copy size={16} /> Копировать</button>
+        <HelpButton start="editor" />
+        <ThemeToggle />
         <div style={{ position: 'relative' }}>
-          <button className="primary" onClick={() => setExportOpen((v) => !v)}>Скачать</button>
+          <button className="primary" onClick={() => setExportOpen((v) => !v)}><Download size={16} /> Скачать</button>
           {exportOpen && (
             <div className="card menu">
               <label>Формат</label>
@@ -317,17 +343,22 @@ export default function Editor({ session, left, go, open }) {
               </select>
               {exportOpts.format !== 'png' && (<><label>Качество: {Math.round(exportOpts.quality * 100)}%</label>
                 <input type="range" min="0.6" max="1" step="0.02" value={exportOpts.quality} onChange={(e) => setExportOpts({ ...exportOpts, quality: Number(e.target.value) })} /></>)}
+              {settings.watermarkChoice && (<><label>Водяной знак</label>
+                <select value={styleNow} onChange={(e) => setWmStyle(e.target.value)}>
+                  {Object.entries(WATERMARK_STYLES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select></>)}
               {isDraft && <p className="small" style={{ color: 'var(--warn)' }}>Работа стажёра без одобрения выгружается с водяным знаком «ЧЕРНОВИК CND».</p>}
-              <button className="primary" style={{ width: '100%', marginTop: 10 }} onClick={download}>Скачать файл</button>
-              <button style={{ width: '100%', marginTop: 6 }} onClick={copyToClipboard}>Копировать в буфер (PNG)</button>
+              <button className="primary" style={{ width: '100%', marginTop: 10 }} onClick={download}><Download size={16} /> Скачать файл</button>
+              <button style={{ width: '100%', marginTop: 6 }} onClick={copyToClipboard}><Copy size={16} /> Копировать в буфер (PNG)</button>
+              {isWebhook(settings.discordWebhook) && <button style={{ width: '100%', marginTop: 6 }} disabled={sending} onClick={sendToDiscord}><Send size={16} /> {sending ? 'Отправляю…' : 'Отправить в Discord'}</button>}
             </div>
           )}
         </div>
       </div>
       <div className="editor-body">
         <div className="rail">
-          {RAIL.map(([k, ico, label]) => (
-            <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}><span className="ico">{ico}</span>{label}</button>
+          {RAIL.map(([k, Ico, label]) => (
+            <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}><Ico size={22} strokeWidth={1.8} />{label}</button>
           ))}
         </div>
         <div className="drawer">
@@ -335,7 +366,7 @@ export default function Editor({ session, left, go, open }) {
           {tab === 'text' && <TextPanel add={add} />}
           {tab === 'photos' && <PhotosPanel addImageFile={addImageFile} uploads={uploads} addImage={addImage} />}
           {tab === 'elements' && <ElementsPanel add={add} />}
-          {tab === 'characters' && <CharactersPanel addImage={addImage} openPoser={setPoserSkin} />}
+          {tab === 'characters' && <CharactersPanel addImage={addImage} openPoser={(skin, mode = 'body') => setPoserSkin({ skin, mode })} />}
           {tab === 'brand' && <BrandPanel addImage={addImage} applyColor={applyColor} applyFont={applyFont} />}
           {/* скрытое поле выбора фото нужно и вне вкладки «Фото» (кнопка «Вставить фото сюда») */}
           {tab !== 'photos' && <input id="photo-file" type="file" accept="image/*" hidden onChange={(e) => [...e.target.files].forEach((f) => addImageFile(f))} />}
@@ -353,10 +384,18 @@ export default function Editor({ session, left, go, open }) {
               onChange={update} onEditText={setEditingId} editingId={editingId} fontTick={fontTick} />
             {editingEl && <TextOverlay el={editingEl} scale={scale} onDone={(text) => { if (text !== editingEl.text) update(editingEl.id, { text }); setEditingId(null); }} />}
           </div>
+          {!doc.elements.length && <div className="empty-hint"><div>Лист пустой. Выберите <b>шаблон</b> или добавьте <b>текст</b> слева. Фото можно просто перетащить сюда.</div></div>}
+          {tipOn && (
+            <div className="tipbar">
+              <Lightbulb size={16} /><span className="grow">{TIPS[tipIdx % TIPS.length]}</span>
+              <button className="ghost" onClick={() => setTipIdx((i) => i + 1)}>Ещё</button>
+              <button className="ghost icon" aria-label="Скрыть подсказки" title="Скрыть подсказки" onClick={hideTips}><X size={14} /></button>
+            </div>
+          )}
         </div>
         <PropsPanel doc={doc} el={selected} update={update} updateDoc={updateDoc} actions={actions} select={setSelectedId} selectedId={selectedId} />
       </div>
-      {poserSkin && <SkinPoser skin={poserSkin} onClose={() => setPoserSkin(null)} onInsert={(url) => { setPoserSkin(null); addImage(url, { name: '3D-персонаж' }); }} />}
+      {poserSkin && <SkinPoser skin={poserSkin.skin} mode={poserSkin.mode} onClose={() => setPoserSkin(null)} onInsert={(url, m) => { setPoserSkin(null); addImage(url, { name: m === 'head' ? '3D-голова' : '3D-персонаж' }); }} />}
       {tplForm && (
         <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && setTplForm(null)}>
           <form className="modal" style={{ maxWidth: 420 }} onSubmit={(e) => { e.preventDefault(); saveAsTemplate(); }}>

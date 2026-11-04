@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/index.js';
 import { BRAND } from '../lib/brand.js';
 import { compressImage } from '../lib/util.js';
+import { ImagePlus, KeyRound, LogIn, User } from 'lucide-react';
+import ThemeToggle from './ThemeToggle.jsx';
+import { Credit, HelpButton } from './Help.jsx';
 
 export default function Login({ onLogin }) {
   const [token, setToken] = useState('');
@@ -31,7 +34,6 @@ export default function Login({ onLogin }) {
     e.preventDefault();
     setError('');
     if (!token.trim() || !nickname.trim()) { setError('Введите токен и никнейм'); return; }
-    if (!photo) { setError('Приложите скриншот удостоверения CND'); return; }
     setBusy(true);
     try {
       onLogin(await api.login({ token, nickname, idPhoto: photo }));
@@ -42,28 +44,31 @@ export default function Login({ onLogin }) {
 
   return (
     <div className="login-wrap">
+      <div className="login-corner"><HelpButton start="start" /><ThemeToggle /></div>
       <form className="card login" onSubmit={submit}>
         <img className="logo" src={BRAND.horizontal} alt="California NewsDay" />
         <h2 style={{ textAlign: 'center' }}>Вход для сотрудников</h2>
-        <label>Токен доступа</label>
+        <p className="muted small" style={{ textAlign: 'center', marginTop: -6 }}>Редактор статей и постов California NewsDay</p>
+        <label className="row" style={{ color: 'var(--muted)' }}><KeyRound size={14} /> Токен доступа</label>
         <input value={token} onChange={(e) => setToken(e.target.value)} placeholder="CND-XXXX-XXXX" autoFocus
           style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: '.05em' }} />
-        <label>Игровой никнейм</label>
+        <label className="row" style={{ color: 'var(--muted)' }}><User size={14} /> Игровой никнейм</label>
         <input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Имя_Фамилия" />
-        <label>Скриншот удостоверения CND</label>
+        <label>Скриншот удостоверения CND <span className="muted small">(админу не нужен)</span></label>
         <div className={`drop ${over ? 'over' : ''}`}
           onClick={() => document.getElementById('id-file').click()}
           onDragOver={(e) => { e.preventDefault(); setOver(true); }}
           onDragLeave={() => setOver(false)}
           onDrop={(e) => { e.preventDefault(); setOver(false); takeFile(e.dataTransfer.files[0]); }}>
-          {photo ? <img src={photo} alt="Удостоверение" /> : <>Перетащите скриншот, нажмите или вставьте <b>Ctrl+V</b></>}
+          {photo ? <img src={photo} alt="Удостоверение" /> : <><ImagePlus size={26} /><span>Перетащите скриншот, нажмите или вставьте <kbd>Ctrl</kbd>+<kbd>V</kbd></span></>}
         </div>
         <input id="id-file" type="file" accept="image/*" hidden onChange={(e) => takeFile(e.target.files[0])} />
         <p className="muted small">Только игровое удостоверение из Minecraft. Реальные документы не загружайте.</p>
         {error && <div className="error">{error}</div>}
-        <button className="primary" style={{ width: '100%', marginTop: 12 }} disabled={busy}>{busy ? 'Проверяем…' : 'Войти'}</button>
+        <button className="primary" style={{ width: '100%', marginTop: 12 }} disabled={busy}><LogIn size={17} />{busy ? 'Проверяем…' : 'Войти'}</button>
         {api.demoHint && <p className="muted small" style={{ textAlign: 'center' }}>Бета, демо-режим. {api.demoHint}</p>}
       </form>
+      <Credit />
     </div>
   );
 }

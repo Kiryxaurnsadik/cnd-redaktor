@@ -20,3 +20,6 @@ export const FONTS = [
   'Inter', 'Montserrat', 'Rubik', 'Unbounded', 'Oswald', 'Russo One', 'PT Serif',
   'Old Standard TT', 'Playfair Display', 'Merriweather', 'Roboto Slab', 'Lobster', 'Press Start 2P',
 ];
+
+// Автор сайта (показывается на входе, в подвале и в инструкции)
+export const CREDIT = { author: 'Kirill_Burnside', faction: 'фракции СМИ', server: 'AtlantWorld' };

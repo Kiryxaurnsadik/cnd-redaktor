@@ -4,6 +4,8 @@ import { BRAND, BRAND_COLORS, FONTS } from '../lib/brand.js';
 import { OFFICIAL_TEMPLATES } from '../lib/templates.js';
 import { SKIN_SOURCES, fetchSkinByNick, renderFlatBody, renderHead, validateSkin } from '../lib/skin.js';
 import { fileToDataURL } from '../lib/util.js';
+import { docThumb } from '../lib/thumb.js';
+import { Box, Circle, Contrast, Frame, Image as ImageIcon, Minus, MoreHorizontal, RectangleHorizontal, Search, Square, Upload, UserRound } from 'lucide-react';
 
 export const TEXT_PRESETS = [
   { label: 'Заголовок', el: { text: 'Заголовок', fontFamily: 'Montserrat', fontSize: 96, fontStyle: 'bold', width: 900 } },
@@ -37,13 +39,14 @@ export function ElementsPanel({ add }) {
   return (
     <>
       <h3>Элементы</h3>
-      <button className="add-btn" onClick={() => add({ type: 'rect', width: 400, height: 250, fill: '#0B7CFC' })}>▭ Прямоугольник</button>
-      <button className="add-btn" onClick={() => add({ type: 'rect', width: 400, height: 80, fill: '#03316F', cornerRadius: 40 })}>⬭ Плашка со скруглением</button>
-      <button className="add-btn" onClick={() => add({ type: 'ellipse', width: 300, height: 300, fill: '#0B7CFC' })}>● Круг</button>
-      <button className="add-btn" onClick={() => add({ type: 'line', points: [0, 0, 600, 0], stroke: '#111111', strokeWidth: 4 })}>— Линия</button>
-      <button className="add-btn" onClick={() => add({ type: 'line', points: [0, 0, 600, 0], stroke: '#111111', strokeWidth: 3, dash: true })}>┄ Пунктир</button>
-      <button className="add-btn" onClick={() => add({ type: 'placeholder', width: 600, height: 400, fill: '#9aa6b8', label: 'Перетащите фото' })}>🖼 Рамка для фото</button>
-      <button className="add-btn" onClick={() => add({ type: 'rect', width: 800, height: 300, fill: '#000000', opacity: 0.5 })}>▒ Затемнение под текст</button>
+      <button className="add-btn" onClick={() => add({ type: 'rect', width: 400, height: 250, fill: '#0B7CFC' })}><Square size={16} /> Прямоугольник</button>
+      <button className="add-btn" onClick={() => add({ type: 'rect', width: 400, height: 80, fill: '#03316F', cornerRadius: 40 })}><RectangleHorizontal size={16} /> Плашка со скруглением</button>
+      <button className="add-btn" onClick={() => add({ type: 'ellipse', width: 300, height: 300, fill: '#0B7CFC' })}><Circle size={16} /> Круг</button>
+      <button className="add-btn" onClick={() => add({ type: 'line', points: [0, 0, 600, 0], stroke: '#111111', strokeWidth: 4 })}><Minus size={16} /> Линия</button>
+      <button className="add-btn" onClick={() => add({ type: 'line', points: [0, 0, 600, 0], stroke: '#111111', strokeWidth: 3, dash: true })}><MoreHorizontal size={16} /> Пунктир</button>
+      <button className="add-btn" onClick={() => add({ type: 'placeholder', width: 600, height: 400, fill: '#9aa6b8', label: 'Перетащите фото' })}><Frame size={16} /> Рамка для фото</button>
+      <button className="add-btn" onClick={() => add({ type: 'rect', width: 800, height: 300, fill: '#000000', opacity: 0.5 })}><Contrast size={16} /> Затемнение под текст</button>
+      <p className="small muted">Подсказка: элемент появляется в центре листа. Цвет меняется справа или во вкладке «Бренд».</p>
     </>
   );
 }
@@ -52,7 +55,7 @@ export function PhotosPanel({ addImageFile, uploads, addImage }) {
   return (
     <>
       <h3>Фото и скриншоты</h3>
-      <button className="primary" style={{ width: '100%' }} onClick={() => document.getElementById('photo-file').click()}>Загрузить фото</button>
+      <button className="primary" style={{ width: '100%' }} onClick={() => document.getElementById('photo-file').click()}><Upload size={16} /> Загрузить фото</button>
       <input id="photo-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden
         onChange={(e) => [...e.target.files].forEach(addImageFile)} />
       <p className="small muted">Можно перетащить файл прямо на холст или нажать Ctrl+V со скриншотом. Если выделена рамка для фото — картинка встанет в неё.</p>
@@ -119,10 +122,11 @@ export function CharactersPanel({ addImage, openPoser }) {
             {preview && <img src={preview} alt="" style={{ width: 56, imageRendering: 'pixelated' }} />}
             <b className="grow">Скин выбран</b>
           </div>
-          <button className="add-btn" style={{ marginTop: 10 }} onClick={async () => addImage(await renderHead(skin, 512), { width: 300, height: 300, name: 'Голова' })}>Голова 2D</button>
+          <button className="add-btn" style={{ marginTop: 10 }} onClick={async () => addImage(await renderHead(skin, 512), { width: 300, height: 300, name: 'Голова' })}><Square size={16} /> Голова 2D</button>
           <button className="add-btn" onClick={async () => addImage(await renderHead(skin, 512, { overlay: false }), { width: 300, height: 300, name: 'Голова без шляпы' })}>Голова без слоя шляпы</button>
-          <button className="add-btn" onClick={async () => addImage(await renderFlatBody(skin, 24), { width: 240, height: 480, name: 'Персонаж 2D' })}>Персонаж 2D (спереди)</button>
-          <button className="primary" style={{ width: '100%' }} onClick={() => openPoser(skin)}>3D: поза и свет…</button>
+          <button className="add-btn" onClick={async () => addImage(await renderFlatBody(skin, 24), { width: 240, height: 480, name: 'Персонаж 2D' })}><ImageIcon size={16} /> Персонаж 2D (спереди)</button>
+          <button className="add-btn" onClick={() => openPoser(skin, 'head')}><Box size={16} /> Голова 3D (поворот и свет)…</button>
+          <button className="primary" style={{ width: '100%' }} onClick={() => openPoser(skin)}><UserRound size={16} /> Персонаж 3D: поза и свет…</button>
         </div>
       )}
       {!!recent.length && (<>
@@ -168,22 +172,31 @@ export function BrandPanel({ addImage, applyColor, applyFont }) {
   );
 }
 
+function TplThumb({ t }) {
+  const [url, setUrl] = useState(t.thumb || null);
+  useEffect(() => { if (!t.thumb) docThumb(t.doc, t.id).then(setUrl).catch(() => {}); }, [t]);
+  return <div className="thumb" style={{ backgroundImage: url ? `url(${url})` : 'none' }} />;
+}
+
 export function TemplatesPanel({ applyTemplate }) {
   const [list, setList] = useState([]);
   const [q, setQ] = useState('');
   useEffect(() => { api.listTemplates().then(setList).catch(() => {}); }, []);
-  const all = [...OFFICIAL_TEMPLATES, ...list].filter((t) => !q || `${t.name} ${(t.tags || []).join(' ')} ${t.author}`.toLowerCase().includes(q.toLowerCase()));
+  const all = [...OFFICIAL_TEMPLATES, ...list].filter((t) => !q || `${t.name} ${t.kind || ''} ${(t.tags || []).join(' ')} ${t.author}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <>
       <h3>Шаблоны</h3>
-      <input placeholder="Поиск" value={q} onChange={(e) => setQ(e.target.value)} />
-      <div style={{ marginTop: 10 }}>
+      <div className="search" style={{ maxWidth: 'none' }}><Search size={16} /><input placeholder="Поиск: газета, сторис, розыск…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <p className="small muted">Шаблон заменит текущий дизайн. Передумали — <kbd>Ctrl</kbd>+<kbd>Z</kbd>.</p>
+      <div className="tpl-list">
         {all.map((t) => (
-          <button key={t.id} className="text-preset" onClick={() => applyTemplate(t)}>
-            <b>{t.name}</b><div className="small muted">{t.official ? 'CND' : t.author} · {t.doc.width}×{t.doc.height}</div>
+          <button key={t.id} className="tpl-item" onClick={() => applyTemplate(t)} title={`${t.name} · ${t.doc.width}×${t.doc.height}`}>
+            <TplThumb t={t} />
+            <div className="cap"><b>{t.name}</b><div className="muted">{t.official ? 'CND' : t.author}</div></div>
           </button>
         ))}
       </div>
+      {!all.length && <p className="muted small">Ничего не нашлось.</p>}
     </>
   );
 }

@@ -86,6 +86,10 @@ insert into cnd_settings (id, data) values (1, jsonb_build_object(
   'loginMode','instant',
   'watermarkOpacity',0.85,
   'watermarkCorner','br',
+  'watermarkStyle','corner',
+  'watermarkChoice',true,
+  'discordWebhook','',
+  'discordEvents', jsonb_build_object('review',true,'approved',true,'logins',false,'tokens',false,'exports',false),
   'positions', jsonb_build_array(
     jsonb_build_object('name','стажер','role','intern'),
     jsonb_build_object('name','журналист','role','journalist'),
@@ -168,6 +172,28 @@ begin
 end $$;
 revoke execute on function cnd_bootstrap_admin(text) from public, anon, authenticated;
 
+-- ---------- Discord ----------
+-- Уведомления уходят с сервера Supabase через расширение pg_net, адрес вебхука не попадает к сотрудникам.
+do $$ begin
+  create extension if not exists pg_net;
+exception when others then raise notice 'pg_net недоступен — уведомления в Discord отключены';
+end $$;
+
+create or replace function cnd_discord(p_event text, p_msg text) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare d jsonb := (select data from cnd_settings where id = 1); hook text := coalesce(d->>'discordWebhook', '');
+begin
+  if hook !~ '^https://(discord|discordapp)\.com/api/webhooks/' then return; end if;
+  if coalesce((d->'discordEvents'->>p_event)::boolean, false) is not true then return; end if;
+  perform net.http_post(url := hook,
+    body := jsonb_build_object('username', 'CND Редактор', 'content', left(p_msg, 1900)),
+    headers := '{"Content-Type": "application/json"}'::jsonb);
+exception when others then
+  -- уведомление не должно ломать основное действие
+  raise notice 'discord: %', sqlerrm;
+end $$;
+revoke execute on function cnd_discord(text, text) from public, anon, authenticated;
+
 -- ---------- вход ----------
 create or replace function cnd_login(p_code text, p_nickname text, p_id_photo text, p_user_agent text)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
@@ -179,12 +205,13 @@ begin
   elsif t.expires_at is not null and t.expires_at < now() then reason := 'Срок действия токена истёк';
   elsif t.max_uses is not null and t.uses >= t.max_uses then reason := 'Лимит входов по токену исчерпан';
   elsif t.nickname is not null and cnd_norm_nick(t.nickname) <> cnd_norm_nick(p_nickname) then reason := 'Токен выдан на другой никнейм';
-  elsif coalesce(p_id_photo, '') = '' then reason := 'Нужно фото удостоверения';
+  elsif coalesce(p_id_photo, '') = '' and t.role <> 'admin' then reason := 'Нужно фото удостоверения (без него входит только админ)';
   end if;
 
   if reason is not null then
     insert into cnd_logins (nickname, token_id, id_photo, user_agent, status, reason)
     values (p_nickname, t.id, p_id_photo, p_user_agent, 'rejected', reason);
+    perform cnd_discord('logins', format('⛔ Неудачный вход: **%s** — %s', p_nickname, reason));
     -- запись о неудаче сохраняем, а пользователю отдаём ошибку
     return jsonb_build_object('error', reason);
   end if;
@@ -194,6 +221,8 @@ begin
   insert into cnd_logins (nickname, token_id, id_photo, user_agent, status)
   values (p_nickname, t.id, p_id_photo, p_user_agent, st) returning id into lid;
   update cnd_tokens set uses = uses + 1 where id = t.id;
+  perform cnd_discord('logins', format('🔑 Вход на сайт: **%s** (%s)%s', trim(p_nickname), t.role,
+    case when st = 'pending' then ' — ждёт проверки удостоверения' else '' end));
 
   secret := encode(gen_random_bytes(24), 'hex');
   insert into cnd_sessions (secret_hash, token_id, login_id, nickname, role, expires_at)
@@ -232,6 +261,8 @@ begin
   values (cnd_hash(code), right(code, 4), nullif(trim(p_nickname), ''), p_role, coalesce(p_note, ''),
     now() + make_interval(hours => coalesce(p_hours, 42)), s.nickname, p_max_uses)
   returning * into t;
+  perform cnd_discord('tokens', format('🎫 %s выдал(а) токен «%s» для **%s** на %s ч', s.nickname, p_role,
+    coalesce(nullif(trim(p_nickname), ''), 'группы'), coalesce(p_hours, 42)));
   return cnd_token_json(t) || jsonb_build_object('code', code);
 end $$;
 
@@ -276,7 +307,12 @@ begin perform cnd_manager(p_session); update cnd_logins set status = p_status wh
 -- ---------- настройки ----------
 create or replace function cnd_get_settings(p_session text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-begin perform cnd_session(p_session); return (select data from cnd_settings where id = 1); end $$;
+declare s cnd_sessions := cnd_session(p_session); d jsonb := (select data from cnd_settings where id = 1);
+begin
+  -- адрес вебхука видят только редакторы и админы, остальным он не нужен
+  if s.role not in ('editor','admin') then d := d - 'discordWebhook'; end if;
+  return d;
+end $$;
 
 create or replace function cnd_save_settings(p_session text, p_data jsonb) returns void
 language plpgsql security definer set search_path = public, extensions as $$
@@ -314,9 +350,10 @@ end $$;
 
 create or replace function cnd_save_work(p_session text, p_work jsonb) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
-declare s cnd_sessions := cnd_session(p_session); w cnd_works; new_status text := coalesce(p_work->>'status', 'draft');
+declare s cnd_sessions := cnd_session(p_session); w cnd_works; new_status text := coalesce(p_work->>'status', 'draft'); old_status text;
 begin
   select * into w from cnd_works where id = p_work->>'id';
+  old_status := case when found then w.status end;
   if found and w.author <> s.nickname and s.role not in ('editor','admin') then raise exception 'Чужая работа'; end if;
   -- одобрять и публиковать могут только редакторы
   if new_status in ('approved','published') and s.role not in ('editor','admin') and (not found or w.status <> new_status) then
@@ -327,6 +364,15 @@ begin
   on conflict (id) do update set title = coalesce(excluded.title, cnd_works.title), status = excluded.status,
     thumb = coalesce(excluded.thumb, cnd_works.thumb), doc = coalesce(excluded.doc, cnd_works.doc), updated_at = now()
   returning * into w;
+  if old_status is distinct from new_status then
+    if new_status = 'review' then
+      perform cnd_discord('review', format('📝 **%s** отправил(а) на проверку «%s»', w.author, coalesce(w.title, 'Без названия')));
+    elsif new_status in ('approved', 'published') then
+      perform cnd_discord('approved', format('✅ Работа «%s» (%s) одобрена. Проверил(а): %s', coalesce(w.title, 'Без названия'), w.author, s.nickname));
+    elsif new_status = 'returned' then
+      perform cnd_discord('review', format('↩️ Работа «%s» (%s) возвращена на доработку', coalesce(w.title, 'Без названия'), w.author));
+    end if;
+  end if;
   return cnd_work_json(w, false);
 end $$;
 
@@ -390,6 +436,7 @@ declare s cnd_sessions := cnd_session(p_session); e cnd_exports;
 begin
   insert into cnd_exports (author, work_id, title, format, watermark)
   values (s.nickname, p_work_id, p_title, p_format, p_watermark) returning * into e;
+  perform cnd_discord('exports', format('🖼 %s выгрузил(а) «%s» (%s, знак: %s)', s.nickname, coalesce(p_title, 'Без названия'), p_format, p_watermark));
   return jsonb_build_object('id', e.id, 'at', (extract(epoch from e.at) * 1000)::bigint, 'author', e.author);
 end $$;
 

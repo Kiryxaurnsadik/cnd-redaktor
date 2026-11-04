@@ -1,18 +1,20 @@
 {
-  "name": "cnd-editor",
+  "name": "cnd-redaktor",
   "version": "1.0.0",
-  "description": "",
+  "description": "Редактор статей фракции СМИ CND (AtlantWorld)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:protected": "CND_PROTECT=1 vite build && node scripts/protect.mjs"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Kirill_Burnside",
+  "license": "UNLICENSED",
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",
     "konva": "^10.9.1",
+    "lucide-react": "^0.460.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-konva": "^19.3.2",
@@ -20,6 +22,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.7.0",
+    "javascript-obfuscator": "^4.1.1",
     "vite": "^6.4.5"
   },
   "private": true,

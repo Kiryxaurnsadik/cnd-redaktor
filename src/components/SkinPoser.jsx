@@ -33,7 +33,7 @@ function applyPose(skin, p) {
   skin.leftLeg.rotation.set(p.lLeg[0] * D, 0, p.lLeg[1] * D);
 }
 
-export default function SkinPoser({ skin, onInsert, onClose }) {
+export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode = 'body' }) {
   const canvasRef = useRef(null);
   const viewerRef = useRef(null);
   const lightsRef = useRef([]);
@@ -41,6 +41,7 @@ export default function SkinPoser({ skin, onInsert, onClose }) {
   const [light, setLight] = useState('studio');
   const [model, setModel] = useState('auto-detect');
   const [error, setError] = useState('');
+  const [mode, setMode] = useState(initialMode);
 
   useEffect(() => {
     const viewer = new SkinViewer({ canvas: canvasRef.current, width: 520, height: 520, preserveDrawingBuffer: true });
@@ -57,6 +58,22 @@ export default function SkinPoser({ skin, onInsert, onClose }) {
   }, [skin, model]);
 
   useEffect(() => { const v = viewerRef.current; if (v) applyPose(v.playerObject.skin, pose); }, [pose]);
+
+  // Режим «Только голова»: прячем тело и подводим камеру к голове
+  useEffect(() => {
+    const v = viewerRef.current; if (!v) return;
+    const head = mode === 'head';
+    const sk = v.playerObject.skin;
+    ['body', 'rightArm', 'leftArm', 'rightLeg', 'leftLeg'].forEach((k) => { if (sk[k]) sk[k].visible = !head; });
+    ['cape', 'elytra', 'ears'].forEach((k) => { if (v.playerObject[k]) v.playerObject[k].visible = false; });
+    v.playerObject.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(head ? sk.head : v.playerObject);
+    const c = box.getCenter(new THREE.Vector3());
+    v.controls.target.copy(c);
+    if (head) v.camera.position.set(c.x + 14, c.y + 8, c.z + 20);
+    else v.camera.position.set(25, 12, 50);
+    v.controls.update();
+  }, [mode, skin, model]);
 
   useEffect(() => {
     const v = viewerRef.current; if (!v) return;
@@ -78,13 +95,16 @@ export default function SkinPoser({ skin, onInsert, onClose }) {
     const size = 1200;
     const r = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
     r.setPixelRatio(1); r.setSize(size, size, false); r.setClearColor(0x000000, 0);
+    // skinview3d рисует без перевода в sRGB (ColorManagement выключен). Если оставить вывод по умолчанию,
+    // three.js осветлит цвета второй раз и персонаж получится выцветшим. Повторяем настройку окна предпросмотра.
+    r.outputColorSpace = THREE.LinearSRGBColorSpace;
     const bg = v.scene.background; v.scene.background = null;
     const cam = v.camera.clone(); cam.aspect = 1; cam.updateProjectionMatrix();
     r.render(v.scene, cam);
     v.scene.background = bg;
     const url = trim(r.domElement);
     r.dispose();
-    onInsert(url);
+    onInsert(url, mode);
   };
 
   const slider = (label, part, i, min = -180, max = 180) => (
@@ -98,7 +118,11 @@ export default function SkinPoser({ skin, onInsert, onClose }) {
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="row" style={{ marginBottom: 10 }}>
-          <h2 className="grow" style={{ margin: 0 }}>3D-персонаж: поза и свет</h2>
+          <h2 className="grow" style={{ margin: 0 }}>{mode === 'head' ? '3D-голова' : '3D-персонаж'}: поза и свет</h2>
+          <div className="seg">
+            <button className={mode === 'body' ? 'on' : ''} onClick={() => setMode('body')}>Персонаж</button>
+            <button className={mode === 'head' ? 'on' : ''} onClick={() => setMode('head')}>Только голова</button>
+          </div>
           <button onClick={onClose}>Закрыть</button>
         </div>
         <div className="poser">
@@ -107,10 +131,10 @@ export default function SkinPoser({ skin, onInsert, onClose }) {
             <p className="small muted">Крутите персонажа мышью, колесо — приближение.</p>
           </div>
           <div>
-            <label>Готовая поза</label>
+            {mode === 'body' && <><label>Готовая поза</label>
             <select onChange={(e) => setPose(structuredClone(POSES[e.target.value]))} defaultValue="stand">
               {Object.entries(POSES).map(([k, p]) => <option key={k} value={k}>{p.label}</option>)}
-            </select>
+            </select></>}
             <label>Свет</label>
             <select value={light} onChange={(e) => setLight(e.target.value)}>
               {Object.entries(LIGHTS).map(([k, l]) => <option key={k} value={k}>{l.label}</option>)}
@@ -125,12 +149,12 @@ export default function SkinPoser({ skin, onInsert, onClose }) {
               <summary>Тонкая настройка</summary>
               {slider('Голова вверх/вниз', 'head', 0, -60, 60)}
               {slider('Голова влево/вправо', 'head', 1, -80, 80)}
-              {slider('Правая рука вперёд', 'rArm', 0)}
+              {mode === 'body' && <>{slider('Правая рука вперёд', 'rArm', 0)}
               {slider('Правая рука в сторону', 'rArm', 2)}
               {slider('Левая рука вперёд', 'lArm', 0)}
               {slider('Левая рука в сторону', 'lArm', 2)}
               {slider('Правая нога', 'rLeg', 0, -100, 100)}
-              {slider('Левая нога', 'lLeg', 0, -100, 100)}
+              {slider('Левая нога', 'lLeg', 0, -100, 100)}</>}
             </details>
             {error && <div className="error">{error}</div>}
             <button className="primary" style={{ width: '100%', marginTop: 12 }} onClick={render}>Вставить на холст</button>

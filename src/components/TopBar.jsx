@@ -1,14 +1,29 @@
+import { LogOut } from 'lucide-react';
 import { BRAND } from '../lib/brand.js';
 import { roleLabel } from '../lib/util.js';
+import Countdown from './Countdown.jsx';
+import ThemeToggle from './ThemeToggle.jsx';
+import { HelpButton } from './Help.jsx';
 
-export default function TopBar({ session, left, logout, children }) {
+export function Who({ session, label, compact = false }) {
+  return (
+    <span className={`who ${compact ? 'compact' : ''}`} title={`${label || session.nickname} · ${roleLabel(session.role)} · время до окончания токена`}>
+      <span>{label || `${session.nickname} · ${roleLabel(session.role)}`}</span>
+      <Countdown to={session.expiresAt} />
+    </span>
+  );
+}
+
+export default function TopBar({ session, logout, children, help }) {
   return (
     <div className="topbar">
       <img className="logo" src={BRAND.iconWhite} alt="CND" />
       {children}
       <div className="grow" />
-      <span className="who">{session.nickname} · {roleLabel(session.role)} · осталось {left}</span>
-      <button onClick={logout}>Выйти</button>
+      <Who session={session} />
+      <HelpButton start={help} />
+      <ThemeToggle />
+      <button onClick={logout} title="Выйти"><LogOut size={16} /> Выйти</button>
     </div>
   );
 }

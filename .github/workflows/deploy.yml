@@ -21,7 +21,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run build
+      - run: npm run build:protected
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://sgloxqzqooewoyiewfjx.supabase.co' }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNnbG94cXpxb29ld295aWV3Zmp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM4MDQ2MzgsImV4cCI6MjEwOTM4MDYzOH0.QOJ-58KlljJxZkI0hkuEGLlKQneT2SSGHNe09aw3bw4' }}

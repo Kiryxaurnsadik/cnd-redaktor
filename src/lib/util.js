@@ -42,10 +42,32 @@ export const uid = () =>
 
 export function formatLeft(ms) {
   if (ms <= 0) return 'истёк';
-  const h = Math.floor(ms / 3600000);
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
-  return `${h} ч ${String(m).padStart(2, '0')} мин`;
+  return d ? `${d} д ${h} ч ${String(m).padStart(2, '0')} мин` : `${h} ч ${String(m).padStart(2, '0')} мин`;
 }
+
+// Таймер с секундами: «2 д 04:15:09» или «04:15:09»
+export function formatTimer(ms) {
+  if (ms <= 0) return '00:00:00';
+  const d = Math.floor(ms / 86400000);
+  const rest = Math.floor((ms % 86400000) / 1000);
+  const hh = String(Math.floor(rest / 3600)).padStart(2, '0');
+  const mm = String(Math.floor((rest % 3600) / 60)).padStart(2, '0');
+  const ss = String(rest % 60).padStart(2, '0');
+  return `${d ? `${d} д ` : ''}${hh}:${mm}:${ss}`;
+}
+
+// Длительность в часах словами: 42 → «42 ч», 72 → «3 д», 30 → «1 д 6 ч»
+export function formatHours(hours) {
+  const d = Math.floor(hours / 24), h = hours % 24;
+  if (!d || (hours < 48 && h)) return `${hours} ч`;
+  return h ? `${d} д ${h} ч` : `${d} д`;
+}
+
+export const DURATION_PRESETS = [42, 24, 72, 168, 336, 720];
+export const MAX_TOKEN_HOURS = 90 * 24;
 
 export function formatDate(ts) {
   if (!ts) return '—';

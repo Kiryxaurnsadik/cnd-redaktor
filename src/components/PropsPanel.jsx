@@ -1,3 +1,4 @@
+import { AlignCenterHorizontal, Bold, CaseSensitive, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, CopyPlus, Eye, EyeOff, Italic, Lock, Sparkles, Trash2, Underline, Unlock } from 'lucide-react';
 import { BRAND_COLORS, FONTS } from '../lib/brand.js';
 
 function Color({ label, value, onChange }) {
@@ -47,8 +48,8 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
       {el && (
         <>
           <div className="row"><h3 className="grow" style={{ margin: 0 }}>{TYPE_NAMES[el.type]}</h3>
-            <button className="small" title="Дублировать (Ctrl+D)" onClick={actions.duplicate}>⧉</button>
-            <button className="small danger" title="Удалить (Delete)" onClick={actions.remove}>🗑</button>
+            <button className="small" title="Дублировать (Ctrl+D)" onClick={actions.duplicate}><CopyPlus size={15} /></button>
+            <button className="small danger" title="Удалить (Delete)" onClick={actions.remove}><Trash2 size={15} /></button>
           </div>
           {el.type === 'text' && (
             <>
@@ -63,11 +64,11 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
                 <div><label>Межстрочный</label><input type="number" step="0.05" value={el.lineHeight || 1.2} onChange={(e) => set({ lineHeight: Number(e.target.value) })} /></div>
               </div>
               <div className="row" style={{ marginTop: 8 }}>
-                <button className={el.fontStyle?.includes('bold') ? 'primary' : ''} onClick={() => toggleStyle('bold')}><b>Ж</b></button>
-                <button className={el.fontStyle?.includes('italic') ? 'primary' : ''} onClick={() => toggleStyle('italic')}><i>К</i></button>
-                <button className={el.textDecoration === 'underline' ? 'primary' : ''} onClick={() => set({ textDecoration: el.textDecoration === 'underline' ? '' : 'underline' })}><u>Ч</u></button>
-                <button onClick={() => set({ text: el.text === el.text.toUpperCase() ? el.text.toLowerCase() : el.text.toUpperCase() })}>Аа</button>
-                <button className={el.shadow ? 'primary' : ''} title="Тень" onClick={() => set({ shadow: !el.shadow })}>Т</button>
+                <button className={el.fontStyle?.includes('bold') ? 'primary' : ''} onClick={() => toggleStyle('bold')}><Bold size={15} /></button>
+                <button className={el.fontStyle?.includes('italic') ? 'primary' : ''} onClick={() => toggleStyle('italic')}><Italic size={15} /></button>
+                <button className={el.textDecoration === 'underline' ? 'primary' : ''} onClick={() => set({ textDecoration: el.textDecoration === 'underline' ? '' : 'underline' })}><Underline size={15} /></button>
+                <button title="ПРОПИСНЫЕ / строчные" onClick={() => set({ text: el.text === el.text.toUpperCase() ? el.text.toLowerCase() : el.text.toUpperCase() })}><CaseSensitive size={15} /></button>
+                <button className={el.shadow ? 'primary' : ''} title="Тень" onClick={() => set({ shadow: !el.shadow })}><Sparkles size={15} /></button>
               </div>
               <label>Выравнивание</label>
               <select value={el.align} onChange={(e) => set({ align: e.target.value })}>
@@ -114,11 +115,11 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
           <label>Прозрачность: {Math.round((el.opacity ?? 1) * 100)}%</label>
           <input type="range" min="0" max="1" step="0.05" value={el.opacity ?? 1} onChange={(e) => set({ opacity: Number(e.target.value) })} />
           <div className="row wrap" style={{ marginTop: 10 }}>
-            <button className="small" onClick={() => actions.order('top')}>Наверх</button>
-            <button className="small" onClick={() => actions.order('up')}>Выше</button>
-            <button className="small" onClick={() => actions.order('down')}>Ниже</button>
-            <button className="small" onClick={() => actions.order('bottom')}>Вниз</button>
-            <button className="small" onClick={() => actions.center()}>По центру</button>
+            <button className="small" title="На передний план" onClick={() => actions.order('top')}><ChevronsUp size={15} /></button>
+            <button className="small" title="Выше на слой" onClick={() => actions.order('up')}><ChevronUp size={15} /></button>
+            <button className="small" title="Ниже на слой" onClick={() => actions.order('down')}><ChevronDown size={15} /></button>
+            <button className="small" title="На задний план" onClick={() => actions.order('bottom')}><ChevronsDown size={15} /></button>
+            <button className="small" title="Выровнять по центру листа" onClick={() => actions.center()}><AlignCenterHorizontal size={15} /> По центру</button>
           </div>
         </>
       )}
@@ -126,8 +127,8 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
       {[...doc.elements].reverse().map((e) => (
         <div key={e.id} className={`layer ${e.id === selectedId ? 'sel' : ''}`} onClick={() => select(e.id)}>
           <span className="name" style={{ opacity: e.visible === false ? 0.4 : 1 }}>{elName(e)}</span>
-          <button title="Показать/скрыть" onClick={(ev) => { ev.stopPropagation(); update(e.id, { visible: e.visible === false }); }}>{e.visible === false ? '◌' : '👁'}</button>
-          <button title="Закрепить" onClick={(ev) => { ev.stopPropagation(); update(e.id, { locked: !e.locked }); }}>{e.locked ? '🔒' : '🔓'}</button>
+          <button title="Показать/скрыть" onClick={(ev) => { ev.stopPropagation(); update(e.id, { visible: e.visible === false }); }}>{e.visible === false ? <EyeOff size={14} /> : <Eye size={14} />}</button>
+          <button title="Закрепить" onClick={(ev) => { ev.stopPropagation(); update(e.id, { locked: !e.locked }); }}>{e.locked ? <Lock size={14} /> : <Unlock size={14} />}</button>
         </div>
       ))}
       {!doc.elements.length && <p className="muted small">Добавьте текст, фото или элементы слева.</p>}

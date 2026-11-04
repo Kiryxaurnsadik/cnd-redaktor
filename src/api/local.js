@@ -1,5 +1,6 @@
 // Демо-бэкенд: всё хранится в localStorage этого браузера.
 // Нужен, чтобы бету можно было потрогать без Supabase. Для фракции — Supabase (см. supabase.js).
+import { postToDiscord } from '../lib/discord.js';
 import { TOKEN_HOURS, generateTokenCode, normalizeNick, normalizeTokenCode, sha256, uid } from '../lib/util.js';
 
 const KEY = 'cnd_demo_db_v1';
@@ -41,11 +42,20 @@ async function db() {
         ],
         watermarkOpacity: 0.85,
         watermarkCorner: 'br',
+        watermarkStyle: 'corner',
+        watermarkChoice: true,
+        discordWebhook: '',
+        discordEvents: { review: true, approved: true, logins: false, tokens: false, exports: false },
       },
     };
     save(d);
   }
   return d;
+}
+
+// В демо уведомления уходят из браузера; на Supabase их шлёт база
+function notify(settings, event, content) {
+  if (settings.discordWebhook && settings.discordEvents?.[event]) postToDiscord(settings.discordWebhook, { content }).catch(() => {});
 }
 
 function requireSession() {
@@ -96,10 +106,10 @@ export const localApi = {
     if (t.expiresAt && t.expiresAt < Date.now()) fail('Срок действия токена истёк');
     if (t.maxUses && t.uses >= t.maxUses) fail('Лимит входов по токену исчерпан');
     if (t.nickname && normalizeNick(t.nickname) !== normalizeNick(nickname)) fail('Токен выдан на другой никнейм');
-    if (!idPhoto) fail('Нужно фото удостоверения');
+    if (!idPhoto && t.role !== 'admin') fail('Нужно фото удостоверения (без него входит только админ)');
     t.uses = (t.uses || 0) + 1;
     log.status = d.settings.loginMode === 'approval' ? 'pending' : 'approved';
-    if (t.role === 'admin' && t.note === 'демо-доступ') log.status = 'approved';
+    if (t.role === 'admin') log.status = 'approved';
     d.logins.unshift(log);
     save(d);
     const session = {
@@ -149,7 +159,12 @@ export const localApi = {
   },
 
   // ---- настройки
-  async getSettings() { return (await db()).settings; },
+  async getSettings() {
+    const d = await db(); const s = getSessionRaw();
+    const out = { ...d.settings };
+    if (!['editor', 'admin'].includes(s?.role)) delete out.discordWebhook;
+    return out;
+  },
   async saveSettings(settings) {
     const s = requireSession(); if (s.role !== 'admin') throw new Error('Только для админа');
     const d = await db(); d.settings = { ...d.settings, ...settings }; save(d);
@@ -174,6 +189,11 @@ export const localApi = {
     const rec = { status: 'draft', ...(i >= 0 ? d.works[i] : { author: s.nickname, createdAt: Date.now() }), ...work, updatedAt: Date.now() };
     if (i >= 0) d.works[i] = rec; else d.works.unshift(rec);
     save(d);
+    if (rec.status !== prevStatus) {
+      const t = rec.title || 'Без названия';
+      const msg = { review: ['review', `📝 **${rec.author}** отправил(а) на проверку «${t}»`], approved: ['approved', `✅ Работа «${t}» (${rec.author}) одобрена. Проверил(а): ${s.nickname}`], returned: ['review', `↩️ Работа «${t}» (${rec.author}) возвращена на доработку`] }[rec.status];
+      if (msg) notify(d.settings, msg[0], msg[1]);
+    }
     return rec;
   },
   async deleteWork(id) { requireSession(); const d = await db(); d.works = d.works.filter((w) => w.id !== id); save(d); },
