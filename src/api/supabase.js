@@ -86,5 +86,8 @@ export function createSupabaseApi(url, anonKey) {
     archiveList: ({ q = '', before = null, limit = 40 } = {}) => rpc('cnd_archive_list', { p_q: q, p_before: before, p_limit: limit }),
     archiveGet: (id) => rpc('cnd_archive_get', { p_id: id }),
     archiveDelete: (id) => rpc('cnd_archive_delete', { p_id: id }),
+
+    like: (kind, id, on) => rpc('cnd_like', { p_kind: kind, p_id: id, p_on: on }),
+    pin: (kind, id, on) => rpc('cnd_pin', { p_kind: kind, p_id: id, p_on: on }),
   };
 }

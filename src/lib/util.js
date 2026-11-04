@@ -12,6 +12,21 @@ export const roleLabel = (r) => ROLES[r]?.label || r;
 export const canManage = (role) => (ROLES[role]?.rank || 0) >= 3;
 export const isAdmin = (role) => role === 'admin';
 
+export const PERMS = [
+  ['tokens', 'Выдавать, продлевать и отзывать токены', 'Только стажёрам и журналистам. Токены редакторов выдаёт главный редактор.'],
+  ['logins', 'Проверять журнал входов', 'Видеть фото удостоверений, одобрять и отклонять входы'],
+  ['works', 'Работы всех сотрудников', 'Видеть, открывать, править и удалять чужие работы'],
+  ['exports', 'Журнал скачиваний', 'Кто, что и когда скачал'],
+  ['templates', 'Управлять шаблонами', 'Делать официальными, скрывать и удалять чужие шаблоны'],
+  ['pin', 'Закреплять', 'Закреплять шаблоны и работы в ленте архива наверху'],
+  ['archiveDelete', 'Удалять чужое из архива', 'Убирать чужие работы из ленты архива'],
+  ['library', 'Чистить общую библиотеку', 'Удалять чужие шрифты и элементы'],
+  ['discord', 'Отправлять в Discord', 'Кнопка «В Discord» в меню «Скачать»'],
+];
+export const ADMIN_PERMS = ['tokens', 'logins', 'works', 'exports'];
+export const can = (session, perm) => !!session && (session.role === 'admin' || (session.perms || []).includes(perm));
+export const canOpenAdmin = (session) => !!session && (session.role === 'admin' || ADMIN_PERMS.some((k) => can(session, k)));
+
 export function normalizeNick(s) {
   return (s || '')
     .toLowerCase()

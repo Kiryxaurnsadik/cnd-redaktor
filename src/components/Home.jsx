@@ -5,10 +5,10 @@ import TopBar from './TopBar.jsx';
 import Countdown from './Countdown.jsx';
 import { Credit, HelpModal } from './Help.jsx';
 import { Archive as ArchiveIcon, BookOpen, ChevronDown, ChevronRight, FilePlus2, FolderOpen, LayoutTemplate, Lightbulb, RotateCcw, Search, Shield, Trash2, X } from 'lucide-react';
-import { ArchiveCard, ArchiveViewer, useArchive } from './Archive.jsx';
+import { ArchiveCard, ArchiveViewer, LikeButton, PinButton, useArchive } from './Archive.jsx';
 import { OFFICIAL_TEMPLATES, SIZES, blankDoc, withIds } from '../lib/templates.js';
 import { docThumb } from '../lib/thumb.js';
-import { canManage, formatDate, roleLabel } from '../lib/util.js';
+import { can, canOpenAdmin, formatDate, roleLabel } from '../lib/util.js';
 
 function Thumb({ doc, src, k }) {
   const [url, setUrl] = useState(src || null);
@@ -33,7 +33,10 @@ export default function Home({ session, logout, left, go }) {
   };
   useEffect(reload, []);
 
-  const allTemplates = useMemo(() => [...OFFICIAL_TEMPLATES, ...templates], [templates]);
+  const allTemplates = useMemo(() => [...templates.filter((t) => t.pinned), ...OFFICIAL_TEMPLATES, ...templates.filter((t) => !t.pinned)], [templates]);
+  const patchTpl = (id, p) => setTemplates((list) => list.map((t) => (t.id === id ? { ...t, ...p } : t)));
+  const PINNED = 'Закреплённые';
+  const groupOf = (t) => (t.pinned ? PINNED : t.kind || 'Другое');
   const kinds = [...new Set(allTemplates.map((t) => t.kind).filter(Boolean))];
   const [collapsed, setCollapsed] = useState(() => { try { return JSON.parse(localStorage.getItem('cnd_tpl_collapsed') || '[]'); } catch { return []; } });
   const toggleKind = (k) => setCollapsed((c) => {
@@ -75,6 +78,7 @@ export default function Home({ session, logout, left, go }) {
   const arch = useArchive('', 10);
   const [archOpen, setArchOpen] = useState(null);
   useEffect(() => { arch.load(true); }, []);
+  const patchArch = (id, p) => { arch.setItems((l) => l.map((x) => (x.id === id ? { ...x, ...p } : x))); setArchOpen((o) => (o && o.id === id ? { ...o, ...p } : o)); };
   const [tipHidden, setTipHidden] = useState(() => { try { return localStorage.getItem('cnd_tip_home') === '1'; } catch { return false; } });
   const hideTip = () => { setTipHidden(true); try { localStorage.setItem('cnd_tip_home', '1'); } catch {} };
   const hour = new Date().getHours();
@@ -85,7 +89,7 @@ export default function Home({ session, logout, left, go }) {
       <TopBar session={session} left={left} logout={logout} help="editor">
         <span className="brand-name">CND Редактор</span>
         <button onClick={() => go({ name: 'archive' })} title="Архив" aria-label="Архив"><ArchiveIcon size={16} /> <span className="lbl">Архив</span></button>
-        {canManage(session.role) && <button onClick={() => go({ name: 'admin' })} title="Админка" aria-label="Админка"><Shield size={16} /> <span className="lbl">Админка</span></button>}
+        {canOpenAdmin(session) && <button onClick={() => go({ name: 'admin' })} title="Админка" aria-label="Админка"><Shield size={16} /> <span className="lbl">Админка</span></button>}
       </TopBar>
       <div className="page">
         {error && <div className="error">{error}</div>}
@@ -133,8 +137,8 @@ export default function Home({ session, logout, left, go }) {
           </select>
         </div>
         {!found.length && <p className="muted">Ничего не нашлось.</p>}
-        {[...new Set(found.map((t) => t.kind || 'Другое'))].map((kd) => {
-          const list = found.filter((t) => (t.kind || 'Другое') === kd);
+        {[...new Set(found.map(groupOf))].map((kd) => {
+          const list = found.filter((t) => groupOf(t) === kd);
           const shut = collapsed.includes(kd) && !q;
           return (
             <div key={kd} className="tpl-group">
@@ -149,7 +153,13 @@ export default function Home({ session, logout, left, go }) {
               <div className="meta">
                 <div className="row"><b className="grow">{t.name}</b>{t.official && <span className="badge blue">CND</span>}</div>
                 <div className="muted">{t.official ? 'Официальный' : `Автор: ${t.author} · взяли ${t.uses || 0} раз`}</div>
-                {!t.official && (t.author === session.nickname || canManage(session.role)) && (
+                {'likes' in t && (
+                  <div className="row tile-actions">
+                    <LikeButton kind="template" item={t} onChange={(p) => patchTpl(t.id, p)} flash={setError} />
+                    <PinButton kind="template" item={t} session={session} onChange={(p) => patchTpl(t.id, p)} flash={setError} />
+                  </div>
+                )}
+                {!t.official && (t.author === session.nickname || can(session, 'templates')) && (
                   <button className="ghost danger small" style={{ justifySelf: 'start' }} onClick={(e) => { e.stopPropagation(); removeTemplate(t); }}><Trash2 size={14} />{armed === t.id ? 'Точно удалить?' : 'Удалить'}</button>
                 )}
               </div>
@@ -207,10 +217,10 @@ export default function Home({ session, logout, left, go }) {
         )}
         <div className="section"><h2><ArchiveIcon size={20} /> Свежее в архиве</h2><button className="ghost" onClick={() => go({ name: 'archive' })}>Вся лента →</button></div>
         <div className="grid arch-grid">
-          {arch.items.map((a) => <ArchiveCard key={a.id} a={a} onOpen={setArchOpen} />)}
+          {arch.items.map((a) => <ArchiveCard key={a.id} a={a} onOpen={setArchOpen} session={session} flash={setError} onChange={(p) => patchArch(a.id, p)} />)}
         </div>
         {!arch.items.length && <p className="muted">Пока пусто. Скачайте или скопируйте готовую работу, и она появится здесь для всей редакции.</p>}
-        {archOpen && <ArchiveViewer item={archOpen} session={session} go={go} flash={(m) => setError(m)} onClose={() => setArchOpen(null)} onDeleted={(id) => arch.setItems(arch.items.filter((x) => x.id !== id))} />}
+        {archOpen && <ArchiveViewer item={archOpen} session={session} go={go} flash={(m) => setError(m)} onChange={(p) => patchArch(archOpen.id, p)} onClose={() => setArchOpen(null)} onDeleted={(id) => arch.setItems(arch.items.filter((x) => x.id !== id))} />}
         <div className="footer"><Credit className="grow" /><span>California NewsDay · Real news. California.</span></div>
       </div>
     </>

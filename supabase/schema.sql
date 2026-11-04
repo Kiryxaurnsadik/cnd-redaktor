@@ -148,6 +148,26 @@ begin
   return s;
 end $$;
 
+create or replace function cnd_can(p_role text, p_perm text) returns boolean
+language sql stable security definer set search_path = public, extensions as $$
+  select p_role = 'admin' or coalesce((select data->'permissions'->p_role from cnd_settings where id = 1), '[]'::jsonb) ? p_perm
+$$;
+
+create or replace function cnd_perm_list(p_role text) returns jsonb
+language sql stable security definer set search_path = public, extensions as $$
+  select case when p_role = 'admin'
+    then '["tokens","logins","works","exports","templates","pin","archiveDelete","library","discord"]'::jsonb
+    else coalesce((select data->'permissions'->p_role from cnd_settings where id = 1), '[]'::jsonb) end
+$$;
+
+create or replace function cnd_need(p_session text, p_perm text) returns cnd_sessions
+language plpgsql security definer set search_path = public, extensions as $$
+declare s cnd_sessions := cnd_session(p_session);
+begin
+  if not cnd_can(s.role, p_perm) then raise exception 'Нет права на это действие — его выдаёт главный редактор в Админке → Права'; end if;
+  return s;
+end $$;
+
 create or replace function cnd_token_json(t cnd_tokens) returns jsonb language sql stable as $$
   select jsonb_build_object('id', t.id, 'nickname', t.nickname, 'role', t.role, 'note', t.note,
     'createdAt', (extract(epoch from t.created_at) * 1000)::bigint,
@@ -218,7 +238,7 @@ begin
   values (cnd_hash(secret), t.id, lid, trim(p_nickname), t.role, t.expires_at) returning id into sid;
 
   return jsonb_build_object('secret', secret, 'id', sid, 'tokenId', t.id, 'loginId', lid,
-    'nickname', trim(p_nickname), 'role', t.role, 'pending', st = 'pending',
+    'nickname', trim(p_nickname), 'role', t.role, 'pending', st = 'pending', 'perms', cnd_perm_list(t.role),
     'expiresAt', (extract(epoch from t.expires_at) * 1000)::bigint);
 end $$;
 
@@ -229,7 +249,7 @@ begin
   select status into st from cnd_logins where id = s.login_id;
   select data->>'loginMode' into mode from cnd_settings where id = 1;
   return jsonb_build_object('id', s.id, 'tokenId', s.token_id, 'loginId', s.login_id, 'nickname', s.nickname,
-    'role', s.role, 'pending', (st = 'pending' and mode = 'approval'),
+    'role', s.role, 'pending', (st = 'pending' and mode = 'approval'), 'perms', cnd_perm_list(s.role),
     'expiresAt', (extract(epoch from s.expires_at) * 1000)::bigint);
 end $$;
 
@@ -240,10 +260,10 @@ $$;
 
 create or replace function cnd_issue_token(p_session text, p_nickname text, p_role text, p_hours int, p_note text, p_max_uses int)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
-declare s cnd_sessions := cnd_manager(p_session); code text := cnd_gen_code(); t cnd_tokens;
+declare s cnd_sessions := cnd_need(p_session, 'tokens'); code text := cnd_gen_code(); t cnd_tokens;
 begin
   if s.role <> 'admin' and p_role in ('editor','admin') then
-    raise exception 'Редактор может выдавать токены только стажёрам и журналистам';
+    raise exception 'Токены редакторов и админов выдаёт только главный редактор';
   end if;
   insert into cnd_tokens (hash, code_hint, nickname, role, note, expires_at, issued_by, max_uses)
   values (cnd_hash(code), right(code, 4), nullif(trim(p_nickname), ''), p_role, coalesce(p_note, ''),
@@ -257,18 +277,18 @@ end $$;
 create or replace function cnd_list_tokens(p_session text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
-  perform cnd_manager(p_session);
+  perform cnd_need(p_session, 'tokens');
   return coalesce((select jsonb_agg(cnd_token_json(t) order by t.created_at desc) from cnd_tokens t), '[]'::jsonb);
 end $$;
 
 create or replace function cnd_revoke_token(p_session text, p_id uuid) returns void
 language plpgsql security definer set search_path = public, extensions as $$
-begin perform cnd_manager(p_session); update cnd_tokens set revoked = true where id = p_id; end $$;
+begin perform cnd_need(p_session, 'tokens'); update cnd_tokens set revoked = true where id = p_id; end $$;
 
 create or replace function cnd_extend_token(p_session text, p_id uuid, p_hours int) returns void
 language plpgsql security definer set search_path = public, extensions as $$
 begin
-  perform cnd_manager(p_session);
+  perform cnd_need(p_session, 'tokens');
   update cnd_tokens set revoked = false,
     expires_at = greatest(now(), coalesce(expires_at, now())) + make_interval(hours => coalesce(p_hours, 42))
   where id = p_id;
@@ -278,7 +298,7 @@ end $$;
 create or replace function cnd_list_logins(p_session text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
-  perform cnd_manager(p_session);
+  perform cnd_need(p_session, 'logins');
   delete from cnd_logins where at < now() - interval '30 days';
   return coalesce((select jsonb_agg(jsonb_build_object(
       'id', l.id, 'at', (extract(epoch from l.at) * 1000)::bigint, 'nickname', l.nickname, 'tokenId', l.token_id,
@@ -289,13 +309,13 @@ end $$;
 
 create or replace function cnd_set_login_status(p_session text, p_id uuid, p_status text) returns void
 language plpgsql security definer set search_path = public, extensions as $$
-begin perform cnd_manager(p_session); update cnd_logins set status = p_status where id = p_id; end $$;
+begin perform cnd_need(p_session, 'logins'); update cnd_logins set status = p_status where id = p_id; end $$;
 
 create or replace function cnd_get_settings(p_session text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session); d jsonb := (select data from cnd_settings where id = 1);
 begin
-  if s.role not in ('editor','admin') then d := d - 'discordWebhook' - 'discordChannels'; end if;
+  if not cnd_can(s.role, 'discord') then d := d - 'discordWebhook' - 'discordChannels'; end if;
   return d;
 end $$;
 
@@ -318,7 +338,7 @@ create or replace function cnd_list_works(p_session text, p_all boolean) returns
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
-  if p_all and s.role not in ('editor','admin') then raise exception 'Недостаточно прав'; end if;
+  if p_all and not cnd_can(s.role, 'works') then raise exception 'Недостаточно прав'; end if;
   return coalesce((select jsonb_agg(cnd_work_json(w, false) order by w.updated_at desc)
     from cnd_works w where w.deleted_at is null and (p_all or w.author = s.nickname)), '[]'::jsonb);
 end $$;
@@ -329,7 +349,7 @@ declare s cnd_sessions := cnd_session(p_session); w cnd_works;
 begin
   select * into w from cnd_works where id = p_id and deleted_at is null;
   if not found then return null; end if;
-  if w.author <> s.nickname and s.role not in ('editor','admin') then raise exception 'Чужая работа'; end if;
+  if w.author <> s.nickname and not cnd_can(s.role, 'works') then raise exception 'Чужая работа'; end if;
   return cnd_work_json(w, true);
 end $$;
 
@@ -338,7 +358,7 @@ language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session); w cnd_works;
 begin
   select * into w from cnd_works where id = p_work->>'id';
-  if found and w.author <> s.nickname and s.role not in ('editor','admin') then raise exception 'Чужая работа'; end if;
+  if found and w.author <> s.nickname and not cnd_can(s.role, 'works') then raise exception 'Чужая работа'; end if;
   insert into cnd_works (id, author, title, status, thumb, doc)
   values (p_work->>'id', s.nickname, p_work->>'title', 'draft', p_work->>'thumb', p_work->'doc')
   on conflict (id) do update set title = coalesce(excluded.title, cnd_works.title),
@@ -352,7 +372,7 @@ language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
   update cnd_works set deleted_at = now()
-  where id = p_id and deleted_at is null and (author = s.nickname or s.role in ('editor','admin'));
+  where id = p_id and deleted_at is null and (author = s.nickname or cnd_can(s.role, 'works'));
 end $$;
 
 create or replace function cnd_list_trash(p_session text) returns jsonb
@@ -361,7 +381,7 @@ declare s cnd_sessions := cnd_session(p_session);
 begin
   delete from cnd_works where deleted_at is not null and deleted_at < now() - interval '30 days';
   return coalesce((select jsonb_agg(cnd_work_json(w, false) order by w.deleted_at desc)
-    from cnd_works w where w.deleted_at is not null and (w.author = s.nickname or s.role in ('editor','admin'))), '[]'::jsonb);
+    from cnd_works w where w.deleted_at is not null and (w.author = s.nickname or cnd_can(s.role, 'works'))), '[]'::jsonb);
 end $$;
 
 create or replace function cnd_restore_work(p_session text, p_id text) returns void
@@ -369,14 +389,14 @@ language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
   update cnd_works set deleted_at = null, updated_at = now()
-  where id = p_id and deleted_at is not null and (author = s.nickname or s.role in ('editor','admin'));
+  where id = p_id and deleted_at is not null and (author = s.nickname or cnd_can(s.role, 'works'));
 end $$;
 
 create or replace function cnd_purge_work(p_session text, p_id text) returns void
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
-  delete from cnd_works where id = p_id and deleted_at is not null and (author = s.nickname or s.role in ('editor','admin'));
+  delete from cnd_works where id = p_id and deleted_at is not null and (author = s.nickname or cnd_can(s.role, 'works'));
 end $$;
 
 create or replace function cnd_tpl_json(t cnd_templates) returns jsonb language sql stable as $$
@@ -387,9 +407,12 @@ $$;
 
 create or replace function cnd_list_templates(p_session text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
+declare s cnd_sessions := cnd_session(p_session);
 begin
-  perform cnd_session(p_session);
-  return coalesce((select jsonb_agg(cnd_tpl_json(t) order by t.official desc, t.uses desc, t.created_at desc)
+  return coalesce((select jsonb_agg(cnd_tpl_json(t) || jsonb_build_object('pinned', t.pinned,
+      'likes', (select count(*) from cnd_likes l where l.kind = 'template' and l.item_id = t.id),
+      'liked', exists(select 1 from cnd_likes l where l.kind = 'template' and l.item_id = t.id and l.nickname = s.nickname))
+    order by t.pinned desc, t.official desc, t.uses desc, t.created_at desc)
     from cnd_templates t where not t.hidden), '[]'::jsonb);
 end $$;
 
@@ -410,7 +433,7 @@ begin perform cnd_session(p_session); update cnd_templates set uses = uses + 1 w
 create or replace function cnd_update_template(p_session text, p_id uuid, p_patch jsonb) returns void
 language plpgsql security definer set search_path = public, extensions as $$
 begin
-  perform cnd_manager(p_session);
+  perform cnd_need(p_session, 'templates');
   update cnd_templates set
     official = coalesce((p_patch->>'official')::boolean, official),
     hidden = coalesce((p_patch->>'hidden')::boolean, hidden)
@@ -421,7 +444,7 @@ create or replace function cnd_delete_template(p_session text, p_id uuid) return
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
-  delete from cnd_templates where id = p_id and (author = s.nickname or s.role in ('editor','admin'));
+  delete from cnd_templates where id = p_id and (author = s.nickname or cnd_can(s.role, 'templates'));
 end $$;
 
 create or replace function cnd_log_export(p_session text, p_work_id text, p_title text, p_format text, p_watermark text)
@@ -437,7 +460,7 @@ end $$;
 create or replace function cnd_list_exports(p_session text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 begin
-  perform cnd_manager(p_session);
+  perform cnd_need(p_session, 'exports');
   return coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'at', (extract(epoch from e.at) * 1000)::bigint,
     'author', e.author, 'workId', e.work_id, 'title', e.title, 'format', e.format, 'watermark', e.watermark) order by e.at desc)
     from (select * from cnd_exports order by at desc limit 500) e), '[]'::jsonb);
@@ -479,7 +502,7 @@ create or replace function cnd_delete_font(p_session text, p_id uuid) returns vo
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
-  delete from cnd_fonts where id = p_id and (author = s.nickname or s.role in ('editor','admin'));
+  delete from cnd_fonts where id = p_id and (author = s.nickname or cnd_can(s.role, 'library'));
 end $$;
 
 create table if not exists cnd_elements (
@@ -514,7 +537,7 @@ create or replace function cnd_delete_element(p_session text, p_id uuid) returns
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
-  delete from cnd_elements where id = p_id and (author = s.nickname or s.role in ('editor','admin'));
+  delete from cnd_elements where id = p_id and (author = s.nickname or cnd_can(s.role, 'library'));
 end $$;
 
 create table if not exists cnd_archive (
@@ -528,6 +551,17 @@ create table if not exists cnd_archive (
   created_at timestamptz not null default now()
 );
 create index if not exists cnd_archive_created on cnd_archive (created_at desc);
+alter table cnd_archive add column if not exists pinned boolean not null default false;
+alter table cnd_templates add column if not exists pinned boolean not null default false;
+
+create table if not exists cnd_likes (
+  kind text not null check (kind in ('archive','template')),
+  item_id uuid not null,
+  nickname text not null,
+  at timestamptz not null default now(),
+  primary key (kind, item_id, nickname)
+);
+alter table cnd_likes enable row level security;
 alter table cnd_archive enable row level security;
 
 create or replace function cnd_archive_json(a cnd_archive, with_image boolean) returns jsonb language sql stable as $$
@@ -559,13 +593,19 @@ end $$;
 
 create or replace function cnd_archive_list(p_session text, p_q text, p_before bigint, p_limit int) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
+declare s cnd_sessions := cnd_session(p_session);
 begin
-  perform cnd_session(p_session);
-  return coalesce((select jsonb_agg(cnd_archive_json(a, false) order by a.created_at desc) from (
-    select * from cnd_archive a
-    where (p_before is null or a.created_at < to_timestamp(p_before / 1000.0))
+  return coalesce((select jsonb_agg(cnd_archive_json(a, false) || jsonb_build_object('pinned', a.pinned,
+      'likes', (select count(*) from cnd_likes l where l.kind = 'archive' and l.item_id = a.id),
+      'liked', exists(select 1 from cnd_likes l where l.kind = 'archive' and l.item_id = a.id and l.nickname = s.nickname))
+    order by a.pinned desc, a.created_at desc) from (
+    (select * from cnd_archive a where p_before is null and a.pinned
+      and (coalesce(p_q, '') = '' or a.title ilike '%' || p_q || '%' or a.author ilike '%' || p_q || '%'))
+    union all
+    (select * from cnd_archive a
+    where not a.pinned and (p_before is null or a.created_at < to_timestamp(p_before / 1000.0))
       and (coalesce(p_q, '') = '' or a.title ilike '%' || p_q || '%' or a.author ilike '%' || p_q || '%')
-    order by a.created_at desc limit least(coalesce(p_limit, 40), 100)) a), '[]'::jsonb);
+    order by a.created_at desc limit least(coalesce(p_limit, 40), 100))) a), '[]'::jsonb);
 end $$;
 
 create or replace function cnd_archive_get(p_session text, p_id uuid) returns jsonb
@@ -582,5 +622,30 @@ create or replace function cnd_archive_delete(p_session text, p_id uuid) returns
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
-  delete from cnd_archive where id = p_id and (author = s.nickname or s.role in ('editor','admin'));
+  delete from cnd_archive where id = p_id and (author = s.nickname or cnd_can(s.role, 'archiveDelete'));
 end $$;
+
+create or replace function cnd_like(p_session text, p_kind text, p_id uuid, p_on boolean) returns jsonb
+language plpgsql security definer set search_path = public, extensions as $$
+declare s cnd_sessions := cnd_session(p_session);
+begin
+  if p_kind not in ('archive','template') then raise exception 'Неизвестный тип'; end if;
+  if p_on then
+    insert into cnd_likes (kind, item_id, nickname) values (p_kind, p_id, s.nickname) on conflict do nothing;
+  else
+    delete from cnd_likes where kind = p_kind and item_id = p_id and nickname = s.nickname;
+  end if;
+  return jsonb_build_object('likes', (select count(*) from cnd_likes where kind = p_kind and item_id = p_id),
+    'liked', exists(select 1 from cnd_likes where kind = p_kind and item_id = p_id and nickname = s.nickname));
+end $$;
+
+create or replace function cnd_pin(p_session text, p_kind text, p_id uuid, p_on boolean) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+begin
+  perform cnd_need(p_session, 'pin');
+  if p_kind = 'archive' then update cnd_archive set pinned = p_on where id = p_id;
+  elsif p_kind = 'template' then update cnd_templates set pinned = p_on where id = p_id;
+  else raise exception 'Неизвестный тип'; end if;
+end $$;
+
+revoke execute on function cnd_need(text, text) from public, anon, authenticated;

@@ -431,3 +431,18 @@ button.linkish { background: none; border: 0; padding: 0; color: var(--brand); t
 .pdf-pages { grid-template-columns: repeat(3, 1fr); }
 .pdf-pages .t { image-rendering: auto; position: relative; padding: 0; aspect-ratio: 3 / 4; }
 .pdf-pages .t span { position: absolute; right: 4px; bottom: 4px; background: var(--panel); border-radius: 6px; font-size: 11px; padding: 1px 5px; }
+.tile-actions { gap: 6px; margin-top: 2px; }
+.like-btn, .pin-btn { display: inline-flex; align-items: center; gap: 5px; }
+.like-btn.small, .pin-btn.small { padding: 3px 9px; font-size: 12px; border-radius: 99px; }
+.like-btn.on { color: #e5484d; border-color: color-mix(in srgb, #e5484d 45%, var(--line)); background: color-mix(in srgb, #e5484d 10%, var(--panel)); }
+.pin-btn.on { color: var(--brand-text); border-color: var(--brand); }
+.tile .thumb { position: relative; }
+.pin-badge { position: absolute; left: 8px; top: 8px; display: inline-flex; align-items: center; gap: 4px; background: var(--brand); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 99px; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.tile.pinned { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); }
+.perm-table { width: 100%; border-collapse: collapse; }
+.perm-table th, .perm-table td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: center; vertical-align: middle; }
+.perm-table th:first-child, .perm-table td:first-child { text-align: left; }
+.perm-table td:first-child .muted { font-size: 12px; }
+.perm-table input { width: 20px; height: 20px; cursor: pointer; }
+.perm-table .pos-names { font-weight: 400; font-size: 12px; color: var(--muted); display: block; }
+.perm-wrap { overflow-x: auto; }

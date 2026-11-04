@@ -1,9 +1,9 @@
 // Если крадёте, то крадите ради реально хороших людей
-import { ArrowLeft, FolderOpen, IdCard, ImageDown, KeyRound, LogIn, MessageSquare, Plus, ScrollText, Search, Settings2, Stamp, Trash2 } from 'lucide-react';
+import { ArrowLeft, FolderOpen, ListChecks, IdCard, ImageDown, KeyRound, LogIn, MessageSquare, Plus, ScrollText, Search, Settings2, Stamp, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/index.js';
 import TopBar from './TopBar.jsx';
-import { DURATION_PRESETS, MAX_TOKEN_HOURS, ROLES, TOKEN_HOURS, formatDate, formatHours, formatLeft, isAdmin, normalizeNick, roleLabel } from '../lib/util.js';
+import { DURATION_PRESETS, MAX_TOKEN_HOURS, ROLES, TOKEN_HOURS, formatDate, formatHours, formatLeft, isAdmin, normalizeNick, roleLabel, PERMS, can } from '../lib/util.js';
 import Countdown from './Countdown.jsx';
 import { WATERMARK_STYLES, applyWatermark, readMark } from '../lib/watermark.js';
 import { DISCORD_EVENTS, isWebhook, postToDiscord } from '../lib/discord.js';
@@ -384,11 +384,53 @@ function Settings({ flash }) {
   );
 }
 
+function Perms({ flash }) {
+  const [s, setS] = useState(null);
+  const [saved, setSaved] = useState('');
+  useEffect(() => { api.getSettings().then((d) => { const v = { permissions: d.permissions || {}, positions: d.positions || [] }; setS(v); setSaved(JSON.stringify(v.permissions)); }).catch((e) => flash(e.message)); }, []);
+  if (!s) return null;
+  const roles = ['intern', 'journalist', 'editor'];
+  const has = (r, k) => (s.permissions[r] || []).includes(k);
+  const toggle = (r, k) => setS({ ...s, permissions: { ...s.permissions, [r]: has(r, k) ? s.permissions[r].filter((x) => x !== k) : [...(s.permissions[r] || []), k] } });
+  const dirty = JSON.stringify(s.permissions) !== saved;
+  const save = () => api.saveSettings({ permissions: s.permissions }).then(() => { setSaved(JSON.stringify(s.permissions)); flash('Права сохранены. Сотрудники получат их после обновления страницы'); }).catch((e) => flash(e.message));
+  const names = (r) => s.positions.filter((p) => p.role === r).map((p) => p.name).filter(Boolean).join(', ');
+  const total = roles.reduce((a, r) => a + (s.permissions[r] || []).length, 0);
+  return (
+    <div className="card" style={{ maxWidth: 980 }}>
+      <div className="row wrap">
+        <h3 className="grow" style={{ margin: 0 }}>Права должностей</h3>
+        <button className="primary" disabled={!dirty} onClick={save}>{dirty ? 'Сохранить права' : 'Сохранено'}</button>
+      </div>
+      <p className="muted small">Отметьте, что может каждая должность. По умолчанию ни у кого нет дополнительных прав: создавать работы, публиковать шаблоны, скачивать и ставить лайки могут все. Главный редактор может всё всегда. Должности привязаны к уровню доступа из «Настройки → Должности».</p>
+      {!total && <p className="small" style={{ color: 'var(--brand-text)' }}>Сейчас дополнительные права не выданы никому.</p>}
+      <div className="perm-wrap">
+        <table className="perm-table">
+          <thead><tr><th>Право</th>{roles.map((r) => <th key={r}>{roleLabel(r)}<span className="pos-names">{names(r) || '—'}</span></th>)}<th>{roleLabel('admin')}</th></tr></thead>
+          <tbody>
+            {PERMS.map(([k, label, hint]) => (
+              <tr key={k}>
+                <td><b>{label}</b><div className="muted">{hint}</div></td>
+                {roles.map((r) => <td key={r}><input type="checkbox" checked={has(r, k)} onChange={() => toggle(r, k)} aria-label={`${label}: ${roleLabel(r)}`} /></td>)}
+                <td><input type="checkbox" checked disabled aria-label="Всегда есть" /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="row wrap" style={{ marginTop: 12 }}>
+        <button className="small" onClick={() => setS({ ...s, permissions: {} })}>Снять все галочки</button>
+      </div>
+    </div>
+  );
+}
+
 export default function Admin({ session, logout, left, go }) {
-  const [tab, setTab] = useState('tokens');
   const [toast, setToast] = useState('');
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2500); };
-  const tabs = [['tokens', 'Токены', KeyRound], ['logins', 'Журнал входов', ScrollText], ['works', 'Работы сотрудников', FolderOpen], ['exports', 'Экспорты', ImageDown], ...(isAdmin(session.role) ? [['settings', 'Настройки', Settings2]] : [])];
+  const tabs = [['tokens', 'Токены', KeyRound], ['logins', 'Журнал входов', ScrollText], ['works', 'Работы сотрудников', FolderOpen], ['exports', 'Экспорты', ImageDown]].filter(([k]) => can(session, k))
+    .concat(isAdmin(session.role) ? [['perms', 'Права', ListChecks], ['settings', 'Настройки', Settings2]] : []);
+  const [tab, setTab] = useState(() => tabs[0]?.[0] || 'tokens');
   return (
     <>
       <TopBar session={session} left={left} logout={logout} help="admin">
@@ -402,6 +444,8 @@ export default function Admin({ session, logout, left, go }) {
         {tab === 'works' && <Works go={go} flash={flash} />}
         {tab === 'exports' && <Exports flash={flash} />}
         {tab === 'settings' && <Settings flash={flash} />}
+        {tab === 'perms' && <Perms flash={flash} />}
+        {!tabs.length && <p className="muted">У вашей должности пока нет прав в админке. Их выдаёт главный редактор.</p>}
       </div>
       {toast && <div className="toast">{toast}</div>}
     </>

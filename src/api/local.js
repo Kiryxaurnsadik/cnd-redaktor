@@ -65,10 +65,22 @@ function requireSession() {
 function getSessionRaw() {
   try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch { return null; }
 }
-function requireManager() {
+const ALL_PERMS = ['tokens', 'logins', 'works', 'exports', 'templates', 'pin', 'archiveDelete', 'library', 'discord'];
+let permCache = {};
+function permsOf(role, settings = null) {
+  if (role === 'admin') return ALL_PERMS;
+  if (settings) permCache = settings.permissions || {};
+  return permCache[role] || [];
+}
+function canDo(s, perm) { return !!s && permsOf(s.role).includes(perm); }
+function need(perm) {
   const s = requireSession();
-  if (!['editor', 'admin'].includes(s.role)) throw new Error('Недостаточно прав');
+  if (!canDo(s, perm)) throw new Error('Нет права на это действие — его выдаёт главный редактор в Админке → Права');
   return s;
+}
+function likesOf(d, kind, id, me) {
+  const l = (d.likes || []).filter((x) => x.kind === kind && x.id === id);
+  return { likes: l.length, liked: l.some((x) => x.nickname === me) };
 }
 
 export const localApi = {
@@ -84,7 +96,7 @@ export const localApi = {
     if (!t || t.revoked) { localStorage.removeItem(SESSION_KEY); return null; }
     const login = d.logins.find((l) => l.id === s.loginId);
     if (login?.status === 'rejected') { localStorage.removeItem(SESSION_KEY); return null; }
-    return { ...s, pending: login?.status === 'pending' && d.settings.loginMode === 'approval' };
+    return { ...s, perms: permsOf(s.role, d.settings), pending: login?.status === 'pending' && d.settings.loginMode === 'approval' };
   },
 
   async login({ token, nickname, idPhoto }) {
@@ -116,14 +128,15 @@ export const localApi = {
       expiresAt: t.expiresAt, createdAt: Date.now(),
     };
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    return { ...session, pending: log.status === 'pending' };
+    return { ...session, perms: permsOf(t.role, d.settings), pending: log.status === 'pending' };
   },
 
   async logout() { localStorage.removeItem(SESSION_KEY); },
 
   async issueToken({ nickname, role, hours = TOKEN_HOURS, note = '', maxUses = null }) {
-    const s = requireManager();
-    if (s.role !== 'admin' && ['editor', 'admin'].includes(role)) throw new Error('Редактор может выдавать токены только стажёрам и журналистам');
+    await db().then((d) => permsOf('', d.settings));
+    const s = need('tokens');
+    if (s.role !== 'admin' && ['editor', 'admin'].includes(role)) throw new Error('Токены редакторов и админов выдаёт только главный редактор');
     const d = await db();
     const code = generateTokenCode();
     const t = {
@@ -134,31 +147,31 @@ export const localApi = {
     d.tokens.unshift(t); save(d);
     return { ...t, code };
   },
-  async listTokens() { requireManager(); return (await db()).tokens; },
+  async listTokens() { const d = await db(); permsOf('', d.settings); need('tokens'); return d.tokens; },
   async revokeToken(id) {
-    requireManager(); const d = await db();
+    const d = await db(); permsOf('', d.settings); need('tokens');
     const t = d.tokens.find((x) => x.id === id); if (t) t.revoked = true; save(d);
   },
   async extendToken(id, hours = TOKEN_HOURS) {
-    requireManager(); const d = await db();
+    const d = await db(); permsOf('', d.settings); need('tokens');
     const t = d.tokens.find((x) => x.id === id);
     if (t) { t.expiresAt = Math.max(Date.now(), t.expiresAt || Date.now()) + hours * 3600000; t.revoked = false; }
     save(d);
   },
 
   async listLogins() {
-    requireManager(); const d = await db();
+    const d = await db(); permsOf('', d.settings); need('logins');
     return d.logins.map((l) => ({ ...l, token: d.tokens.find((t) => t.id === l.tokenId) || null }));
   },
   async setLoginStatus(id, status) {
-    requireManager(); const d = await db();
+    const d = await db(); permsOf('', d.settings); need('logins');
     const l = d.logins.find((x) => x.id === id); if (l) l.status = status; save(d);
   },
 
   async getSettings() {
-    const d = await db(); const s = getSessionRaw();
+    const d = await db(); const s = getSessionRaw(); permsOf('', d.settings);
     const out = { ...d.settings };
-    if (!['editor', 'admin'].includes(s?.role)) { delete out.discordWebhook; delete out.discordChannels; }
+    if (!canDo(s, 'discord')) { delete out.discordWebhook; delete out.discordChannels; }
     return out;
   },
   async saveSettings(settings) {
@@ -167,7 +180,8 @@ export const localApi = {
   },
 
   async listWorks({ all = false } = {}) {
-    const s = requireSession(); const d = await db();
+    const s = requireSession(); const d = await db(); permsOf('', d.settings);
+    if (all) need('works');
     return d.works
       .filter((w) => !w.deletedAt && (all || w.author === s.nickname))
       .map(({ doc, ...meta }) => meta)
@@ -184,7 +198,8 @@ export const localApi = {
   },
   async deleteWork(id) {
     const s = requireSession(); const d = await db();
-    const w = d.works.find((x) => x.id === id && (x.author === s.nickname || ['editor', 'admin'].includes(s.role)));
+    permsOf('', d.settings);
+    const w = d.works.find((x) => x.id === id && (x.author === s.nickname || canDo(s, 'works')));
     if (w) { w.deletedAt = Date.now(); save(d); }
   },
   async listTrash() {
@@ -194,7 +209,7 @@ export const localApi = {
     d.works = d.works.filter((w) => !w.deletedAt || w.deletedAt > cut);
     if (d.works.length !== before) save(d);
     return d.works
-      .filter((w) => w.deletedAt && (w.author === s.nickname || ['editor', 'admin'].includes(s.role)))
+      .filter((w) => w.deletedAt && (w.author === s.nickname || canDo(s, 'works')))
       .map(({ doc, ...meta }) => meta)
       .sort((a, b) => b.deletedAt - a.deletedAt);
   },
@@ -205,8 +220,9 @@ export const localApi = {
   async purgeWork(id) { requireSession(); const d = await db(); d.works = d.works.filter((w) => !(w.id === id && w.deletedAt)); save(d); },
 
   async listTemplates() {
-    requireSession(); const d = await db();
-    return d.templates.filter((t) => !t.hidden);
+    const s = requireSession(); const d = await db();
+    return d.templates.filter((t) => !t.hidden).map((t) => ({ ...t, pinned: !!t.pinned, ...likesOf(d, 'template', t.id, s.nickname) }))
+      .sort((a, b) => (b.pinned - a.pinned) || (b.official - a.official) || ((b.uses || 0) - (a.uses || 0)) || (b.createdAt - a.createdAt));
   },
   async saveTemplate(tpl) {
     const s = requireSession(); const d = await db();
@@ -218,13 +234,14 @@ export const localApi = {
     if (t) { t.uses = (t.uses || 0) + 1; save(d); }
   },
   async updateTemplate(id, patch) {
-    requireManager(); const d = await db(); const t = d.templates.find((x) => x.id === id);
+    const d = await db(); permsOf('', d.settings); need('templates'); const t = d.templates.find((x) => x.id === id);
     if (t) Object.assign(t, patch); save(d);
   },
   async deleteTemplate(id) {
     const s = requireSession(); const d = await db();
     const t = d.templates.find((x) => x.id === id);
-    if (t && t.author !== s.nickname && !['editor', 'admin'].includes(s.role)) throw new Error('Можно удалять только свои шаблоны');
+    permsOf('', d.settings);
+    if (t && t.author !== s.nickname && !canDo(s, 'templates')) throw new Error('Можно удалять только свои шаблоны');
     d.templates = d.templates.filter((x) => x.id !== id); save(d);
   },
 
@@ -234,7 +251,7 @@ export const localApi = {
     d.exports.unshift(rec); d.exports = d.exports.slice(0, 500); save(d);
     return rec;
   },
-  async listExports() { requireManager(); return (await db()).exports; },
+  async listExports() { const d = await db(); permsOf('', d.settings); need('exports'); return d.exports; },
 
   async listFonts() { requireSession(); return (await db()).fonts || []; },
   async saveFont({ family, data }) {
@@ -246,7 +263,8 @@ export const localApi = {
   },
   async deleteFont(id) {
     const s = requireSession(); const d = await db();
-    d.fonts = (d.fonts || []).filter((f) => !(f.id === id && (f.author === s.nickname || ['editor', 'admin'].includes(s.role))));
+    permsOf('', d.settings);
+    d.fonts = (d.fonts || []).filter((f) => !(f.id === id && (f.author === s.nickname || canDo(s, 'library'))));
     save(d);
   },
 
@@ -259,7 +277,8 @@ export const localApi = {
   },
   async deleteElement(id) {
     const s = requireSession(); const d = await db();
-    d.elements = (d.elements || []).filter((e) => !(e.id === id && (e.author === s.nickname || ['editor', 'admin'].includes(s.role))));
+    permsOf('', d.settings);
+    d.elements = (d.elements || []).filter((e) => !(e.id === id && (e.author === s.nickname || canDo(s, 'library'))));
     save(d);
   },
 
@@ -271,15 +290,30 @@ export const localApi = {
     save(d); const { image, ...meta } = rec; return meta;
   },
   async archiveList({ q = '', before = null, limit = 40 } = {}) {
-    requireSession(); const d = await db();
+    const s = requireSession(); const d = await db();
     const ql = q.toLowerCase();
-    return (d.archive || []).filter((a) => (!before || a.at < before) && (!ql || `${a.title} ${a.author}`.toLowerCase().includes(ql)))
-      .slice(0, limit).map(({ image, ...meta }) => meta);
+    const hit = (a) => !ql || `${a.title} ${a.author}`.toLowerCase().includes(ql);
+    const pinned = before ? [] : (d.archive || []).filter((a) => a.pinned && hit(a));
+    const rest = (d.archive || []).filter((a) => !a.pinned && (!before || a.at < before) && hit(a)).slice(0, limit);
+    return [...pinned, ...rest].map(({ image, ...meta }) => ({ ...meta, pinned: !!meta.pinned, ...likesOf(d, 'archive', meta.id, s.nickname) }));
   },
   async archiveGet(id) { requireSession(); return (await db()).archive?.find((a) => a.id === id) || null; },
   async archiveDelete(id) {
     const s = requireSession(); const d = await db();
-    d.archive = (d.archive || []).filter((a) => !(a.id === id && (a.author === s.nickname || ['editor', 'admin'].includes(s.role))));
+    permsOf('', d.settings);
+    d.archive = (d.archive || []).filter((a) => !(a.id === id && (a.author === s.nickname || canDo(s, 'archiveDelete'))));
     save(d);
+  },
+
+  async like(kind, id, on) {
+    const s = requireSession(); const d = await db(); d.likes = d.likes || [];
+    d.likes = d.likes.filter((x) => !(x.kind === kind && x.id === id && x.nickname === s.nickname));
+    if (on) d.likes.push({ kind, id, nickname: s.nickname, at: Date.now() });
+    save(d); return likesOf(d, kind, id, s.nickname);
+  },
+  async pin(kind, id, on) {
+    const d = await db(); permsOf('', d.settings); need('pin');
+    const list = kind === 'archive' ? d.archive || [] : d.templates;
+    const it = list.find((x) => x.id === id); if (it) it.pinned = !!on; save(d);
   },
 };
