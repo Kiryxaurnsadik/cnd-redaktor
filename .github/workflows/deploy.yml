@@ -24,7 +24,7 @@ jobs:
       - run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://sgloxqzqooewoyiewfjx.supabase.co' }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNnbG94cXpxb29ld295aWV3Zmp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM4MDQ2MzgsImV4cCI6MjEwOTM4MDYzOH0.QOJ-58KlljJxZkI0hkuEGLlKQneT2SSGHNe09aw3bw4' }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
