@@ -1,5 +1,5 @@
 // Если крадёте, то крадите ради реально хороших людей
-import { Clapperboard, Film, Pause, Play, Wand2 } from 'lucide-react';
+import { Clapperboard, Eye, Film, Pause, Play, Wand2 } from 'lucide-react';
 import { ANIMS, DEFAULT_ANIM, hasAnims, timingOf } from '../lib/anim.js';
 
 const AUTO = ['fade', 'up', 'up', 'left', 'zoom', 'up'];
@@ -18,6 +18,7 @@ export default function AnimPanel({ doc, selected, update, setTiming, autoAnimat
         <div className="grow"><label>Кадров в секунду</label>
           <select value={tm.fps} onChange={(e) => setTiming({ fps: Number(e.target.value) })}>{[8, 10, 12, 15, 20, 25].map((f) => <option key={f} value={f}>{f}</option>)}</select></div>
       </div>
+      <p className="small muted" style={{ margin: '4px 0 0' }}>Итог: {tm.dur} с · {Math.round(tm.dur * tm.fps)} кадров{list.length ? ` · последняя анимация закончится на ${Math.max(...list.map((e) => (e.anim.delay || 0) + (e.anim.dur || 0.6))).toFixed(1)} с` : ''}</p>
       {selected ? (
         <div className="anim-box" style={{ marginTop: 10 }}>
           <label>Анимация «{selected.name || selected.text?.slice(0, 20) || selected.type}»</label>
@@ -34,7 +35,8 @@ export default function AnimPanel({ doc, selected, update, setTiming, autoAnimat
       ) : <p className="small muted" style={{ marginTop: 10 }}>Ничего не выбрано.</p>}
       <button style={{ width: '100%', marginTop: 10 }} onClick={() => autoAnimate(AUTO)}><Wand2 size={16} /> Оживить всё по очереди</button>
       <button className="primary" style={{ width: '100%', marginTop: 6 }} disabled={!hasAnims(doc)} onClick={play}>{playing ? <><Pause size={16} /> Стоп</> : <><Play size={16} /> Просмотр</>}</button>
-      <div className="row" style={{ gap: 6, marginTop: 6 }}>
+      <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+        <button className="grow" disabled={!hasAnims(doc) || busy} onClick={() => exportAnim('gif', true)} title="Собрать GIF и посмотреть перед скачиванием"><Eye size={16} /> Просмотр GIF</button>
         <button className="grow" disabled={!hasAnims(doc) || busy} onClick={() => exportAnim('gif')}><Film size={16} /> Скачать GIF</button>
         <button className="grow" disabled={!hasAnims(doc) || busy} onClick={() => exportAnim('video')}><Film size={16} /> Видео</button>
       </div>

@@ -640,7 +640,8 @@ export default function Editor({ session, left, go, open }) {
     animRef.current = { anim, raf: requestAnimationFrame(tick) };
   };
   useEffect(() => () => stopAnim(), []);
-  const exportAnim = async (kind) => {
+  const [gifPreview, setGifPreview] = useState(null);
+  const exportAnim = async (kind, preview = false) => {
     stopAnim(); setEditingId(null); setSelectedId(null); setExportOpen(false);
     const { dur, fps } = timingOf(doc);
     const maxSide = kind === 'gif' ? 720 : 1080;
@@ -669,6 +670,7 @@ export default function Editor({ session, left, go, open }) {
       let blob, name;
       if (kind === 'gif') { blob = await encodeGif(frames, w, h, Math.round(1000 / fps)); name = `${base}.gif`; }
       else { const v = await encodeVideo(frames, w, h, fps); blob = v.blob; name = `${base}.${v.ext}`; }
+      if (preview) { setGifPreview({ url: URL.createObjectURL(blob), blob, name, dur, fps, frames: n, w, h, size: blob.size, kind }); setAllBusy(''); return; }
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 8000);
       flash(`Готово: ${name}`);
@@ -904,6 +906,23 @@ export default function Editor({ session, left, go, open }) {
         return <Tool el={selected} onClose={() => setImageTool(null)} onApply={(src, orig) => { update(selected.id, { src, origSrc: orig }); setImageTool(null); flash(imageTool === 'bg' ? 'Фон убран' : 'Качество улучшено'); }} />;
       })()}
       {poserSkin && <SkinPoser skin={poserSkin.skin} mode={poserSkin.mode} onClose={() => setPoserSkin(null)} onInsert={(url, m) => { setPoserSkin(null); addImage(url, { name: m === 'head' ? '3D-голова' : '3D-персонаж' }); }} />}
+      {gifPreview && (
+        <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) { URL.revokeObjectURL(gifPreview.url); setGifPreview(null); } }}>
+          <div className="modal" style={{ maxWidth: 760 }}>
+            <h2>Просмотр {gifPreview.kind === 'gif' ? 'GIF' : 'видео'}</h2>
+            <div style={{ display: 'grid', placeItems: 'center', background: 'var(--panel-2)', borderRadius: 10, padding: 10 }}>
+              {gifPreview.kind === 'gif'
+                ? <img src={gifPreview.url} alt="" style={{ maxWidth: '100%', maxHeight: '60vh' }} />
+                : <video src={gifPreview.url} autoPlay loop muted controls style={{ maxWidth: '100%', maxHeight: '60vh' }} />}
+            </div>
+            <p className="small muted" style={{ marginTop: 8 }}>Длительность {gifPreview.dur} с · {gifPreview.frames} кадров · {gifPreview.fps} кадр/с · {gifPreview.w}×{gifPreview.h} · {(gifPreview.size / 1048576).toFixed(1)} МБ. Длину меняйте во вкладке «Анимация».</p>
+            <div className="row" style={{ marginTop: 10, gap: 8 }}>
+              <button className="primary" onClick={() => { const a = document.createElement('a'); a.href = gifPreview.url; a.download = gifPreview.name; document.body.appendChild(a); a.click(); a.remove(); }}><Download size={16} /> Скачать</button>
+              <button onClick={() => { URL.revokeObjectURL(gifPreview.url); setGifPreview(null); }}>Закрыть</button>
+            </div>
+          </div>
+        </div>
+      )}
       {tplForm && (
         <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && setTplForm(null)}>
           <form className="modal" style={{ maxWidth: 420 }} onSubmit={(e) => { e.preventDefault(); saveAsTemplate(); }}>
