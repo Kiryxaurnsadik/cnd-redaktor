@@ -35,7 +35,7 @@ function Tokens({ session, flash }) {
       setIssued(t); setForm({ ...form, nickname: '', note: '' }); reload();
     } catch (err) { flash(err.message); }
   };
-  const message = issued && `Токен доступа CND: ${issued.code}\nНик: ${issued.nickname || 'любой (групповой)'} · Роль: ${roleLabel(issued.role)}\nДействует до ${formatDate(issued.expiresAt)} (${formatLeft(issued.expiresAt - Date.now())})\nВход: ${location.origin + location.pathname}`;
+  const message = issued && `Токен доступа CND: ${issued.code}\nНик: ${issued.nickname || 'любой (групповой)'} · Уровень прав: ${roleLabel(issued.role)}\nДействует до ${formatDate(issued.expiresAt)} (${formatLeft(issued.expiresAt - Date.now())})\nВход: ${location.origin + location.pathname}`;
 
   return (
     <div className="row wrap" style={{ alignItems: 'flex-start', gap: 16 }}>
@@ -46,7 +46,7 @@ function Tokens({ session, flash }) {
           <input value={form.nickname} onChange={(e) => setForm({ ...form, nickname: e.target.value })} placeholder="Имя_Фамилия" /></>)}
         {form.group && (<><label>Лимит входов</label>
           <input type="number" min="1" value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} /></>)}
-        <label>Роль</label>
+        <label>Уровень прав</label>
         <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
           {roles.map(([k, r]) => <option key={k} value={k}>{r.label}</option>)}
         </select>
@@ -82,7 +82,7 @@ function Tokens({ session, flash }) {
       <div className="card grow table-wrap" style={{ minWidth: 320 }}>
         <h3>Токены</h3>
         <table>
-          <thead><tr><th>Ник</th><th>Роль</th><th>Код</th><th>Осталось</th><th>До</th><th>Входов</th><th>Выдал</th><th /></tr></thead>
+          <thead><tr><th>Ник</th><th>Уровень прав</th><th>Код</th><th>Осталось</th><th>До</th><th>Входов</th><th>Выдал</th><th /></tr></thead>
           <tbody>
             {list.map((t) => {
               const leftMs = t.expiresAt ? t.expiresAt - now : Infinity;
@@ -93,7 +93,7 @@ function Tokens({ session, flash }) {
                   <td>{t.nickname || <i className="muted">групповой</i>}<div className="muted small">{t.note}</div></td>
                   <td>{['admin', 'senior', 'editor'].includes(t.role) && !isAdmin(session.role)
                     ? roleLabel(t.role)
-                    : <select className="small" style={{ width: 'auto' }} value={t.role} onChange={(e) => { const r = e.target.value; api.setTokenRole(t.id, r).then(reload).then(() => flash(`Должность: ${roleLabel(r)}. Действует сразу`)).catch((er) => flash(er.message)); }}>
+                    : <select className="small" style={{ width: 'auto' }} value={t.role} onChange={(e) => { const r = e.target.value; api.setTokenRole(t.id, r).then(reload).then(() => flash(`Уровень прав: ${roleLabel(r)}. Действует сразу`)).catch((er) => flash(er.message)); }}>
                       {Object.keys(ROLES).filter((k) => isAdmin(session.role) || ['intern', 'journalist'].includes(k)).map((k) => <option key={k} value={k}>{roleLabel(k)}</option>)}
                     </select>}</td>
                   <td className="muted small">…{t.codeHint || '----'}</td>
@@ -131,7 +131,7 @@ function Logins({ flash }) {
   const shown = list.filter((l) => !filter || normalizeNick(l.nickname).includes(normalizeNick(filter)));
   const setStatus = (id, s) => api.setLoginStatus(id, s).then(reload);
   const exportCsv = () => {
-    const rows = [['Время', 'Ник', 'Ник токена', 'Роль', 'Статус', 'Причина', 'Браузер']].concat(
+    const rows = [['Время', 'Ник', 'Ник токена', 'Уровень прав', 'Статус', 'Причина', 'Браузер']].concat(
       list.map((l) => [formatDate(l.at), l.nickname, l.token?.nickname || '', l.token ? roleLabel(l.token.role) : '', l.status, l.reason, l.userAgent]));
     const csv = '﻿' + rows.map((r) => r.map((c) => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'cnd-logins.csv'; a.click();
