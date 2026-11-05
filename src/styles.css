@@ -477,3 +477,10 @@ button.linkish { background: none; border: 0; padding: 0; color: var(--brand); t
 .mag-photos button { aspect-ratio: 1; background: center / cover no-repeat; border-radius: 6px; padding: 0; position: relative; }
 .mag-photos span { position: absolute; left: 2px; top: 2px; font-size: 10px; background: rgba(0,0,0,.6); color: #fff; border-radius: 4px; padding: 0 4px; }
 @media (max-width: 1024px) { .pagebar { padding: 6px 8px; gap: 6px; } .pg-tools .lbl { display: none; } .pg-thumb { height: 48px; } }
+
+.bl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.bl-bar .seg button { padding: 4px 8px; font-size: 12px; }
+.bl-sel { display: flex; align-items: center; gap: 6px; margin: 0; }
+.bl-sel select { width: auto; padding: 4px 6px; font-size: 12px; }
+.bl-shade button { min-width: 30px; font-size: 15px !important; }
+@media (max-width: 700px) { .bl-bar .lbl { display: none; } }

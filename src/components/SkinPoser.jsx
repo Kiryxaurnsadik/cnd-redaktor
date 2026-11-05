@@ -2,12 +2,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SkinViewer } from 'skinview3d';
 import * as THREE from 'three';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import { ATTACH, DEFAULT_ITEM, DEFAULT_TUNE, ITEMS, disposeItem, makeItem, poseModel, readItemFile } from '../lib/items.js';
 import { ARMOR_SETS, ARMOR_SLOTS, DEFAULT_ARMOR, buildArmor, readArmorFile, removeArmor } from '../lib/armor.js';
 import { DEFAULT_BODY, TORSO_TYPES, applyBody, resetBody } from '../lib/bodyshape.js';
 import { ADAMS_THANKS } from '../lib/brand.js';
 
 const D = Math.PI / 180;
+const LIMBS_ALL = ['head', 'rArm', 'lArm', 'rLeg', 'lLeg'];
 const P = (head, rArm, lArm, rLeg, lLeg) => ({ head, rArm, lArm, rLeg, lLeg });
 export const POSES = {
   stand: { label: 'Стоит', ...P([0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]) },
@@ -36,12 +38,16 @@ const NO_LIGHT = { c: '#ffffff', i: 0, a: 0, h: 20 };
 const lightCfg = (k) => { const l = LIGHTS[k]; return { ambient: l.ambient, camera: l.camera, key: { ...(l.key || NO_LIGHT) }, rim: { ...(l.rim || NO_LIGHT) } }; };
 const dirPos = ({ a, h }) => { const r = 60; return [Math.sin(a * D) * Math.cos(h * D) * r, Math.sin(h * D) * r, Math.cos(a * D) * Math.cos(h * D) * r]; };
 
+const PART = { head: 'head', rArm: 'rightArm', lArm: 'leftArm', rLeg: 'rightLeg', lLeg: 'leftLeg' };
 function applyPose(skin, p) {
-  skin.head.rotation.set(p.head[0] * D, p.head[1] * D, p.head[2] * D);
-  skin.rightArm.rotation.set(p.rArm[0] * D, p.rArm[1] * D, p.rArm[2] * D);
-  skin.leftArm.rotation.set(p.lArm[0] * D, p.lArm[1] * D, p.lArm[2] * D);
-  skin.rightLeg.rotation.set(p.rLeg[0] * D, p.rLeg[1] * D, p.rLeg[2] * D);
-  skin.leftLeg.rotation.set(p.lLeg[0] * D, p.lLeg[1] * D, p.lLeg[2] * D);
+  for (const [k, part] of Object.entries(PART)) {
+    const o = skin[part]; if (!o) continue;
+    o.userData.limb = k;
+    if (!o.userData.basePos) o.userData.basePos = o.position.clone();
+    o.rotation.set(p[k][0] * D, p[k][1] * D, p[k][2] * D);
+    const off = p.pos?.[k] || [0, 0, 0];
+    o.position.set(o.userData.basePos.x + off[0], o.userData.basePos.y + off[1], o.userData.basePos.z + off[2]);
+  }
 }
 
 function Range({ label, value, min, max, step = 1, unit = '', onChange }) {
@@ -73,6 +79,10 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
   const clock = useRef(0);
   const [body, setBody] = useState(DEFAULT_BODY);
   const [limb, setLimb] = useState('rArm');
+  const [tool, setTool] = useState('rotate');
+  const [space, setSpace] = useState('local');
+  const [shading, setShading] = useState('material');
+  const tcRef = useRef(null);
 
   useEffect(() => {
     const viewer = new SkinViewer({
@@ -98,7 +108,37 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
     window.addEventListener('pointerup', wake);
     canvasRef.current.addEventListener('wheel', wake, { passive: true });
     wake();
-    return () => { clearTimeout(raf); window.removeEventListener('pointerup', wake); resetBody(viewer.playerObject?.skin); viewer.dispose(); };
+    const mk = (m) => {
+      const tc = new TransformControls(viewer.camera, canvasRef.current);
+      tc.setMode(m); tc.size = 0.9;
+      tc.addEventListener('dragging-changed', (e) => { viewer.controls.enabled = !e.value; viewer.renderPaused = false; if (!e.value) wake(); });
+      tc.addEventListener('change', () => { viewer.renderPaused = false; clearTimeout(raf); raf = setTimeout(pause, 400); });
+      tc.addEventListener('objectChange', () => {
+        const o = tc.object; const k = o?.userData?.limb; if (!k) return;
+        const r1 = (x) => Math.round(x * 10) / 10;
+        const rot = [r1(o.rotation.x / D), r1(o.rotation.y / D), r1(o.rotation.z / D)];
+        const b = o.userData.basePos;
+        const off = [r1(o.position.x - b.x), r1(o.position.y - b.y), r1(o.position.z - b.z)];
+        setPose((p) => ({ ...p, [k]: rot, pos: { ...(p.pos || {}), [k]: off } }));
+      });
+      viewer.scene.add(tc);
+      return tc;
+    };
+    tcRef.current = { rotate: mk('rotate'), move: mk('translate') };
+    const ray = new THREE.Raycaster(); let down = null;
+    const onDown = (e) => { down = [e.clientX, e.clientY]; };
+    const onUp = (e) => {
+      if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
+      const tcs = tcRef.current; if (tcs.rotate.dragging || tcs.move.dragging || tcs.rotate.axis || tcs.move.axis) return;
+      const r = canvasRef.current.getBoundingClientRect();
+      ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), viewer.camera);
+      const hit = ray.intersectObject(viewer.playerObject, true).find((h) => h.object.visible);
+      let o = hit?.object; while (o && !o.userData?.limb) o = o.parent;
+      if (o) setLimb(o.userData.limb);
+    };
+    canvasRef.current.addEventListener('pointerdown', onDown);
+    canvasRef.current.addEventListener('pointerup', onUp);
+    return () => { clearTimeout(raf); Object.values(tcRef.current || {}).forEach((tc) => { tc.detach(); tc.dispose(); }); window.removeEventListener('pointerup', wake); resetBody(viewer.playerObject?.skin); viewer.dispose(); };
   }, []);
   const redraw = () => viewerRef.current?.wake?.();
 
@@ -110,6 +150,42 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
 
   useEffect(() => { const v = viewerRef.current; if (v) { applyPose(v.playerObject.skin, pose); redraw(); } }, [pose]);
   useEffect(() => { const v = viewerRef.current; if (v) { applyBody(v.playerObject.skin, body); redraw(); } }, [body]);
+
+  useEffect(() => {
+    const v = viewerRef.current; const tcs = tcRef.current; if (!v || !tcs) return;
+    const part = v.playerObject?.skin?.[PART[LIMBS_ALL.includes(limb) && (mode === 'body' || limb === 'head') ? limb : 'head']];
+    const want = { rotate: tool === 'rotate' || tool === 'transform', move: tool === 'move' || tool === 'transform' };
+    for (const [k, tc] of Object.entries(tcs)) {
+      tc.setSpace(space === 'global' ? 'world' : 'local');
+      if (want[k] && part) { if (tc.object !== part) tc.attach(part); tc.visible = true; tc.enabled = true; } else { tc.detach(); }
+      if (k === 'rotate') tc.size = tool === 'transform' ? 1.15 : 0.9;
+    }
+    redraw();
+  }, [tool, space, limb, mode, skin, model]);
+
+  const applyLights = (cfg) => {
+    const v = viewerRef.current; if (!v) return;
+    lightsRef.current.forEach((l) => { v.scene.remove(l); l.dispose?.(); });
+    lightsRef.current = [];
+    v.globalLight.intensity = cfg.ambient;
+    v.cameraLight.intensity = cfg.camera;
+    [cfg.key, cfg.rim].filter((d) => d && d.i > 0).forEach((d) => {
+      const dl = new THREE.DirectionalLight(d.c, d.i); dl.position.set(...dirPos(d)); v.scene.add(dl); lightsRef.current.push(dl);
+    });
+  };
+  const setWire = (on) => {
+    const v = viewerRef.current; if (!v) return;
+    v.playerObject.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => { m.wireframe = on; }); });
+  };
+  const shadeLights = (sh, cfg) => (sh === 'wire' || sh === 'solid' ? { ambient: 3, camera: 0.6, key: null, rim: null } : cfg);
+  useEffect(() => {
+    const v = viewerRef.current; if (!v) return;
+    applyLights(shadeLights(shading, lcfg));
+    setWire(shading === 'wire');
+    const pr = shading === 'rendered' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+    if (v.renderer.getPixelRatio() !== pr) { v.renderer.setPixelRatio(pr); v.renderer.setSize(v.width, v.height, false); }
+    redraw();
+  }, [lcfg, shading, skin, model, items, armor]);
 
   const whereOf = (it) => (mode === 'head' ? 'head' : it.where);
   const keyOf = (it) => `${it.kind}|${it.custom?.uid || ''}|${it.custom?.grip || ''}|${whereOf(it)}`;
@@ -243,6 +319,9 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
       if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
       const map = { Numpad1: 'front', Numpad3: 'side', Numpad7: 'top', Numpad9: 'back', Numpad5: 'tq' };
       if (map[e.code]) { e.preventDefault(); setView(map[e.code]); }
+      const tk = { KeyG: 'move', KeyR: 'rotate', KeyT: 'transform', KeyQ: 'none' }[e.code];
+      if (tk && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setTool(tk); }
+      if (e.code === 'KeyZ' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); setShading((x) => ({ wire: 'solid', solid: 'material', material: 'rendered', rendered: 'wire' }[x])); }
       if (e.code === 'Numpad0' || e.code === 'Home') { e.preventDefault(); resetView(); }
     };
     window.addEventListener('keydown', onKey);
@@ -250,17 +329,6 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
   });
 
   const pickLight = (k) => { setLight(k); setLcfg(lightCfg(k)); };
-  useEffect(() => {
-    const v = viewerRef.current; if (!v) return;
-    lightsRef.current.forEach((l) => { v.scene.remove(l); l.dispose?.(); });
-    lightsRef.current = [];
-    v.globalLight.intensity = lcfg.ambient;
-    v.cameraLight.intensity = lcfg.camera;
-    [lcfg.key, lcfg.rim].filter((d) => d.i > 0).forEach((d) => {
-      const dl = new THREE.DirectionalLight(d.c, d.i); dl.position.set(...dirPos(d)); v.scene.add(dl); lightsRef.current.push(dl);
-    });
-    redraw();
-  }, [lcfg]);
   const setL = (part, key, val) => setLcfg((c) => (part ? { ...c, [part]: { ...c[part], [key]: val } } : { ...c, [key]: val }));
 
   const filter = useMemo(() => `brightness(${look.brightness}) contrast(${look.contrast}) saturate(${look.saturate})`, [look]);
@@ -274,9 +342,13 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
     r.setPixelRatio(1); r.setSize(size, size, false); r.setClearColor(0x000000, 0);
     r.outputColorSpace = THREE.LinearSRGBColorSpace;
     const bg = v.scene.background; v.scene.background = null;
+    const tcs = Object.values(tcRef.current || {}); const vis = tcs.map((t) => t.visible); tcs.forEach((t) => { t.visible = false; });
+    applyLights(lcfg); setWire(false);
     const cam = v.camera.clone(); cam.aspect = 1; cam.updateProjectionMatrix();
     r.render(v.scene, cam);
     v.scene.background = bg;
+    tcs.forEach((t, i) => { t.visible = vis[i]; });
+    applyLights(shadeLights(shading, lcfg)); setWire(shading === 'wire'); redraw();
     const url = trim(r.domElement, filter);
     r.dispose();
     onInsert(url, mode);
@@ -302,12 +374,31 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
         </div>
         <div className="poser">
           <div className="poser-view">
-            <canvas ref={canvasRef} style={{ filter }} />
+            <div className="bl-bar">
+              <div className="seg" title="Инструмент (G — перемещение, R — поворот, T — оба)">
+                {[['none', '⬚', 'Выбор'], ['move', '✥', 'Move'], ['rotate', '⟳', 'Rotate'], ['transform', '✥⟳', 'Transform']].map(([k, ic, l]) => (
+                  <button key={k} className={tool === k ? 'on' : ''} onClick={() => setTool(k)} title={l}>{ic} <span className="lbl">{l}</span></button>
+                ))}
+              </div>
+              <label className="bl-sel" title="Ориентация преобразования">
+                <span className="small muted">Ориентация</span>
+                <select value={space} onChange={(e) => setSpace(e.target.value)}>
+                  <option value="global">Global</option>
+                  <option value="local">Local</option>
+                </select>
+              </label>
+              <div className="seg bl-shade" title="Viewport Shading (Z)">
+                {[['wire', '◌', 'Wireframe'], ['solid', '●', 'Solid'], ['material', '◐', 'Material Preview'], ['rendered', '◉', 'Rendered']].map(([k, ic, l]) => (
+                  <button key={k} className={shading === k ? 'on' : ''} onClick={() => setShading(k)} title={l}>{ic}</button>
+                ))}
+              </div>
+            </div>
+            <canvas ref={canvasRef} style={{ filter: shading === 'rendered' || shading === 'material' ? filter : 'none' }} />
             <div className="views">
               {Object.entries(VIEWS).map(([k, [l]]) => <button key={k} className="small" onClick={() => setView(k)}>{l}</button>)}
               <button className="small" onClick={resetView}>Сброс</button>
             </div>
-            <p className="small muted">Как в Blockbench: левая кнопка мыши крутит, правая или колёсико двигают, прокрутка приближает. Клавиши Num 1, 3, 7, 9 — виды спереди, сбоку, сверху, сзади.</p>
+            <p className="small muted">Как в Blender: щёлкните по части тела, чтобы выбрать её. Тяните стрелки, чтобы двигать, и цветные дуги, чтобы вращать; белый круг вращает относительно экрана. G, R, T меняют инструмент, Z — режим отображения. Solid и Wireframe легче для видеокарты, картинка всё равно сохраняется в полном качестве. Как в Blockbench: левая кнопка мыши крутит, правая или колёсико двигают, прокрутка приближает. Клавиши Num 1, 3, 7, 9 — виды спереди, сбоку, сверху, сзади.</p>
             <p className="small muted thanks">{ADAMS_THANKS}</p>
           </div>
           <div className="poser-side">
@@ -324,7 +415,7 @@ export default function SkinPoser({ skin, onInsert, onClose, mode: initialMode =
               {axes.map(([label, i, min, max]) => (
                 <Range key={`${curLimb}${i}`} label={label} value={pose[curLimb][i]} min={min} max={max} unit="°" onChange={(v) => set(curLimb, i, v)} />
               ))}
-              <button className="small ghost" onClick={() => setPose((p) => ({ ...p, [curLimb]: [0, 0, 0] }))}>Сбросить «{LIMBS[curLimb]}»</button>
+              <button className="small ghost" onClick={() => setPose((p) => ({ ...p, [curLimb]: [0, 0, 0], pos: { ...(p.pos || {}), [curLimb]: [0, 0, 0] } }))}>Сбросить «{LIMBS[curLimb]}»</button>
             </details>
 
             <details open className="pgroup">
