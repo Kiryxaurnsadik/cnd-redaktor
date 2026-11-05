@@ -1,5 +1,8 @@
 // Если крадёте, то крадите ради реально хороших людей
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Clapperboard, Film } from 'lucide-react';
+import AnimPanel from './AnimPanel.jsx';
+import { DEFAULT_ANIM, encodeGif, encodeVideo, hasAnims, makeAnimator, timingOf } from '../lib/anim.js';
 import { ArrowLeft, BadgeCheck, BookOpen, FileText, FolderArchive, BookmarkPlus, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, Send, Shapes, Type, Undo2, X, SlidersHorizontal, Minus, Plus, ChevronDown } from 'lucide-react';
 import ThemeToggle from './ThemeToggle.jsx';
 import { HelpButton, TIPS } from './Help.jsx';
@@ -30,7 +33,7 @@ import { withIds } from '../lib/templates.js';
 import { canManage, compressImage, loadImage, roleLabel, uid } from '../lib/util.js';
 
 const RAIL = [
-  ['templates', LayoutTemplate, 'Шаблоны'], ['magazine', BookOpen, 'Журнал'], ['text', Type, 'Текст'], ['photos', ImageIcon, 'Фото'],
+  ['templates', LayoutTemplate, 'Шаблоны'], ['magazine', BookOpen, 'Журнал'], ['anim', Clapperboard, 'Анимация'], ['text', Type, 'Текст'], ['photos', ImageIcon, 'Фото'],
   ['elements', Shapes, 'Элементы'], ['brand', BadgeCheck, 'Бренд'],
 ];
 
@@ -619,6 +622,67 @@ export default function Editor({ session, left, go, open }) {
     setAllBusy('');
   };
 
+  const [animPlaying, setAnimPlaying] = useState(false);
+  const animRef = useRef(null);
+  const stopAnim = () => { const r = animRef.current; if (r) { cancelAnimationFrame(r.raf); r.anim.restore(); animRef.current = null; } setAnimPlaying(false); };
+  const playAnim = async () => {
+    if (animRef.current) { stopAnim(); return; }
+    setEditingId(null); setSelectedId(null);
+    await new Promise((r) => setTimeout(r, 60));
+    const anim = makeAnimator(stageApi.current.stage(), doc); const { dur } = timingOf(doc);
+    const t0 = performance.now(); setAnimPlaying(true);
+    const tick = () => {
+      const t = (performance.now() - t0) / 1000;
+      if (t > dur + 0.6) { stopAnim(); return; }
+      anim.apply(Math.min(t, dur)); animRef.current.raf = requestAnimationFrame(tick);
+    };
+    animRef.current = { anim, raf: requestAnimationFrame(tick) };
+  };
+  useEffect(() => () => stopAnim(), []);
+  const exportAnim = async (kind) => {
+    stopAnim(); setEditingId(null); setSelectedId(null); setExportOpen(false);
+    const { dur, fps } = timingOf(doc);
+    const maxSide = kind === 'gif' ? 720 : 1080;
+    const mult = Math.min(1, maxSide / Math.max(doc.width, doc.height));
+    let exportId = '';
+    try { const rec = await api.logExport({ workId, title, format: kind === 'gif' ? 'gif' : 'видео', watermark: WATERMARK_STYLES[styleNow] || styleNow }); exportId = rec?.id || ''; } catch {}
+    const n = Math.max(2, Math.round(dur * fps)); const frames = [];
+    try {
+      setAllBusy('Готовлю кадры…');
+      await new Promise((r) => setTimeout(r, 60));
+      await stageApi.current.ready();
+      const anim = makeAnimator(stageApi.current.stage(), doc);
+      try {
+        for (let i = 0; i < n; i++) {
+          if (i % 4 === 0) { setAllBusy(`Кадр ${i + 1} из ${n}…`); await new Promise((r) => setTimeout(r, 0)); }
+          anim.apply((i / (n - 1)) * dur);
+          const c = stageApi.current.toCanvas(mult);
+          await applyWatermark(c, { author: session.nickname, exportId, opacity: settings.watermarkOpacity, corner: settings.watermarkCorner, style: styleNow, avoid: [] });
+          frames.push(c);
+        }
+      } finally { anim.restore(); }
+      if (toArchive) addToArchive(frames[frames.length - 1], true);
+      setAllBusy(kind === 'gif' ? 'Собираю GIF…' : 'Записываю видео…');
+      const w = frames[0].width, h = frames[0].height;
+      const base = (title || 'cnd').replace(/[\\/:*?"<>|]+/g, '_');
+      let blob, name;
+      if (kind === 'gif') { blob = await encodeGif(frames, w, h, Math.round(1000 / fps)); name = `${base}.gif`; }
+      else { const v = await encodeVideo(frames, w, h, fps); blob = v.blob; name = `${base}.${v.ext}`; }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+      flash(`Готово: ${name}`);
+    } catch (e) { flash(`Не получилось: ${e.message}`); }
+    setAllBusy('');
+  };
+  const autoAnimate = (seq) => commit((d) => {
+    let i = 0;
+    return { ...d, anim: { ...timingOf(d) }, elements: d.elements.map((e) => {
+      if (e.locked || e.visible === false || (e.type === 'rect' && e.width >= d.width * 0.95 && e.height >= d.height * 0.95)) return e;
+      const type = e.type === 'text' && e.fontSize < 40 ? 'fade' : seq[i % seq.length];
+      return { ...e, anim: { ...DEFAULT_ANIM, type, delay: Math.round(Math.min(timingOf(d).dur * 0.7, (i++) * 0.25) * 10) / 10 } };
+    }) };
+  });
+
   const copyToClipboard = () => {
     if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') { flash('Браузер не умеет копировать картинки, скачайте файл'); return; }
     const blobPromise = renderFinal('png-буфер', exportOpts.mult).then((c) => { archiveIfNeeded(c); return toBlob(c, 'image/png'); });
@@ -737,6 +801,12 @@ export default function Editor({ session, left, go, open }) {
                   <button className="grow" onClick={() => exportAll('zip')} title="Все страницы картинками в ZIP"><FolderArchive size={16} /> ZIP ({pageCount(doc)})</button>
                 </div>
               )}
+              {hasAnims(doc) && (
+                <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                  <button className="grow" onClick={() => exportAnim('gif')} title="Анимация в GIF"><Film size={16} /> GIF</button>
+                  <button className="grow" onClick={() => exportAnim('video')} title="Анимация в видео WebM"><Film size={16} /> Видео</button>
+                </div>
+              )}
               <button style={{ width: '100%', marginTop: 6 }} onClick={copyToClipboard}><Copy size={16} /> Копировать в буфер (PNG)</button>
               {mobile && <button style={{ width: '100%', marginTop: 6 }} onClick={() => { setExportOpen(false); openTplForm(); }}><BookmarkPlus size={16} /> Опубликовать как шаблон</button>}
               {!!channels.length && (
@@ -775,6 +845,8 @@ export default function Editor({ session, left, go, open }) {
           {tab === 'magazine' && <MagazinePanel doc={doc} add={add} flash={flash}
             replaceDoc={(d) => { commit(d); setSelectedId(null); }}
             addAllPages={(fn) => commit((d) => applyToAllPages(d, fn))} />}
+          {tab === 'anim' && <AnimPanel doc={doc} selected={selected} update={update} playing={animPlaying} play={playAnim} exportAnim={exportAnim} busy={!!allBusy}
+            setTiming={(p) => commit((d) => ({ ...d, anim: { ...timingOf(d), ...p } }))} autoAnimate={autoAnimate} />}
           {tab === 'text' && <TextPanel add={add} />}
           {tab === 'photos' && <PhotosPanel addImageFile={addImageFile} uploads={uploads} addImage={addImage} importResult={importResult} docW={doc.width} pendingImport={pendingImport} clearPending={() => setPendingImport(null)} />}
           {tab === 'elements' && <ElementsPanel add={add} addImage={addImage} flash={flash} openPoser={(skin, mode = 'body') => setPoserSkin({ skin, mode })} />}

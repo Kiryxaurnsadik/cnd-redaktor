@@ -160,7 +160,28 @@ const QUICK_WEATHER_WIDE = {
   },
 };
 
-export const QUICK_TEMPLATES = [QUICK_NEWS, QUICK_WEATHER_SQ, QUICK_WEATHER_WIDE];
+const A = (type, delay, dur = 0.7) => ({ anim: { type, delay, dur } });
+const ANIM_ARTICLE = {
+  id: 'cnd-anim-article', name: 'Анимированная статья GIF', kind: 'Анимация', tags: ['анимация', 'gif', 'видео', 'статья', '4:5', 'движение'], official: true, author: 'CND',
+  doc: {
+    width: 1080, height: 1350, background: '#03316F', gradient: { type: 'linear', from: '#0B4FA8', to: '#020F26', angle: 90 }, anim: { dur: 5, fps: 12 },
+    elements: [
+      P({ x: 0, y: 0, width: 1080, height: 760, fill: '#1D3B66', label: 'Главное фото статьи', name: 'Фото', ...A('zoom', 0, 1.2) }),
+      R({ x: 0, y: 380, width: 1080, height: 380, fill: '#020F26', gradient: { type: 'linear', from: 'rgba(2,15,38,0)', to: 'rgba(2,15,38,1)', angle: 90 }, name: 'Тень' }),
+      R({ x: 60, y: 60, width: 190, height: 54, cornerRadius: 27, fill: '#E53935', name: 'Плашка СРОЧНО', ...A('pulse', 0.4, 1) }),
+      T({ x: 60, y: 73, width: 190, text: 'СРОЧНО', fontFamily: 'Montserrat', fontStyle: 'bold', fontSize: 24, letterSpacing: 4, align: 'center', lineHeight: 1.1, ...A('pulse', 0.4, 1) }),
+      I({ x: 946, y: 50, width: 74, height: 74, src: BRAND.iconWhite, locked: true, name: 'Логотип CND' }),
+      T({ x: 60, y: 690, width: 960, text: 'CALIFORNIA NEWSDAY · 5 НОЯБРЯ', fontFamily: 'Montserrat', fontStyle: 'bold', fontSize: 22, letterSpacing: 4, fill: '#7FB8FF', ...A('fade', 0.5) }),
+      T({ x: 60, y: 736, width: 960, text: 'Заголовок статьи выезжает снизу и цепляет с первой секунды', fontFamily: 'Montserrat', fontStyle: 'bold', fontSize: 64, lineHeight: 1.08, name: 'Заголовок', ...A('up', 0.8, 0.8) }),
+      R({ x: 60, y: 980, width: 120, height: 8, cornerRadius: 4, fill: '#0B7CFC', ...A('right', 1.4, 0.5) }),
+      T({ x: 60, y: 1016, width: 960, text: 'Текст статьи печатается, как на машинке. Коротко: что случилось, где и что будет дальше. Подробности — на портале CND.', fontFamily: 'PT Serif', fontSize: 34, fill: '#DCE7F7', lineHeight: 1.45, name: 'Текст', ...A('type', 1.7, 2.2) }),
+      T({ x: 60, y: 1262, width: 700, text: 'Автор: Имя Фамилия', fontFamily: 'Inter', fontStyle: 'bold', fontSize: 26, fill: '#9DB8E6', ...A('fade', 3.9, 0.6) }),
+      T({ x: 560, y: 1262, width: 320, text: 'читать далее →', fontFamily: 'Inter', fontStyle: 'bold', fontSize: 26, fill: '#FFFFFF', align: 'right', ...A('float', 4, 1.2) }),
+    ],
+  },
+};
+
+export const QUICK_TEMPLATES = [QUICK_NEWS, QUICK_WEATHER_SQ, QUICK_WEATHER_WIDE, ANIM_ARTICLE];
 
 const MAG_NAMES = { velour: 'Журнал VELOUR: весь выпуск', velvet: 'Журнал VELVET: весь выпуск', caliber: 'Журнал CALIBER: весь выпуск', cnd: 'Журнал CND WEEKLY: весь выпуск' };
 
