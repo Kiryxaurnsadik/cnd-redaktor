@@ -285,6 +285,21 @@ create or replace function cnd_revoke_token(p_session text, p_id uuid) returns v
 language plpgsql security definer set search_path = public, extensions as $$
 begin perform cnd_need(p_session, 'tokens'); update cnd_tokens set revoked = true where id = p_id; end $$;
 
+create or replace function cnd_set_token_role(p_session text, p_id uuid, p_role text) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare s cnd_sessions := cnd_need(p_session, 'tokens'); t cnd_tokens;
+begin
+  if p_role not in ('intern','journalist','editor','admin') then raise exception 'Неизвестная должность'; end if;
+  select * into t from cnd_tokens where id = p_id;
+  if not found then raise exception 'Токен не найден'; end if;
+  if t.id = s.token_id then raise exception 'Свою должность менять нельзя'; end if;
+  if s.role <> 'admin' and (p_role in ('editor','admin') or t.role in ('editor','admin')) then
+    raise exception 'Редактора и главного редактора назначает только главный редактор';
+  end if;
+  update cnd_tokens set role = p_role where id = p_id;
+  update cnd_sessions set role = p_role where token_id = p_id;
+end $$;
+
 create or replace function cnd_extend_token(p_session text, p_id uuid, p_hours int) returns void
 language plpgsql security definer set search_path = public, extensions as $$
 begin

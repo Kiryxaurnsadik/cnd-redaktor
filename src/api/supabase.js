@@ -48,6 +48,7 @@ export function createSupabaseApi(url, anonKey) {
       rpc('cnd_issue_token', { p_nickname: nickname, p_role: role, p_hours: hours, p_note: note, p_max_uses: maxUses }),
     listTokens: () => rpc('cnd_list_tokens'),
     revokeToken: (id) => rpc('cnd_revoke_token', { p_id: id }),
+    setTokenRole: (id, role) => rpc('cnd_set_token_role', { p_id: id, p_role: role }),
     extendToken: (id, hours = TOKEN_HOURS) => rpc('cnd_extend_token', { p_id: id, p_hours: hours }),
 
     listLogins: () => rpc('cnd_list_logins'),

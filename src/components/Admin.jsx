@@ -91,7 +91,11 @@ function Tokens({ session, flash }) {
               return (
                 <tr key={t.id}>
                   <td>{t.nickname || <i className="muted">групповой</i>}<div className="muted small">{t.note}</div></td>
-                  <td>{roleLabel(t.role)}</td>
+                  <td>{(t.role === 'admin' || t.role === 'editor') && !isAdmin(session.role)
+                    ? roleLabel(t.role)
+                    : <select className="small" style={{ width: 'auto' }} value={t.role} onChange={(e) => { const r = e.target.value; api.setTokenRole(t.id, r).then(reload).then(() => flash(`Должность: ${roleLabel(r)}. Действует сразу`)).catch((er) => flash(er.message)); }}>
+                      {Object.keys(ROLES).filter((k) => isAdmin(session.role) || ['intern', 'journalist'].includes(k)).map((k) => <option key={k} value={k}>{roleLabel(k)}</option>)}
+                    </select>}</td>
                   <td className="muted small">…{t.codeHint || '----'}</td>
                   <td>{status}</td>
                   <td className="small muted">{formatDate(t.expiresAt)}</td>

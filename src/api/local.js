@@ -96,7 +96,7 @@ export const localApi = {
     if (!t || t.revoked) { localStorage.removeItem(SESSION_KEY); return null; }
     const login = d.logins.find((l) => l.id === s.loginId);
     if (login?.status === 'rejected') { localStorage.removeItem(SESSION_KEY); return null; }
-    return { ...s, perms: permsOf(s.role, d.settings), pending: login?.status === 'pending' && d.settings.loginMode === 'approval' };
+    return { ...s, role: t.role, perms: permsOf(t.role, d.settings), pending: login?.status === 'pending' && d.settings.loginMode === 'approval' };
   },
 
   async login({ token, nickname, idPhoto }) {
@@ -151,6 +151,14 @@ export const localApi = {
   async revokeToken(id) {
     const d = await db(); permsOf('', d.settings); need('tokens');
     const t = d.tokens.find((x) => x.id === id); if (t) t.revoked = true; save(d);
+  },
+  async setTokenRole(id, role) {
+    const d = await db(); permsOf('', d.settings); need('tokens');
+    const s = requireSession(); const t = d.tokens.find((x) => x.id === id);
+    if (!t) throw new Error('Токен не найден');
+    if (t.id === s.tokenId) throw new Error('Свою должность менять нельзя');
+    if (s.role !== 'admin' && (['editor', 'admin'].includes(role) || ['editor', 'admin'].includes(t.role))) throw new Error('Редактора и главного редактора назначает только главный редактор');
+    t.role = role; save(d);
   },
   async extendToken(id, hours = TOKEN_HOURS) {
     const d = await db(); permsOf('', d.settings); need('tokens');
