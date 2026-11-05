@@ -420,6 +420,14 @@ create or replace function cnd_save_template(p_session text, p_tpl jsonb) return
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session); t cnd_templates;
 begin
+  if coalesce(p_tpl->>'id', '') <> '' then
+    update cnd_templates set name = p_tpl->>'name', tags = coalesce(array(select jsonb_array_elements_text(p_tpl->'tags')), '{}'),
+      kind = p_tpl->>'kind', thumb = p_tpl->>'thumb', doc = p_tpl->'doc'
+    where id = (p_tpl->>'id')::uuid and (author = s.nickname or cnd_can(s.role, 'templates'))
+    returning * into t;
+    if not found then raise exception 'Обновлять шаблон может только его автор'; end if;
+    return cnd_tpl_json(t);
+  end if;
   insert into cnd_templates (author, name, tags, kind, thumb, doc)
   values (s.nickname, p_tpl->>'name', coalesce(array(select jsonb_array_elements_text(p_tpl->'tags')), '{}'),
     p_tpl->>'kind', p_tpl->>'thumb', p_tpl->'doc') returning * into t;

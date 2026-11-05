@@ -5,6 +5,7 @@ import { Stage, Layer, Rect, Text, Image as KImage, Ellipse, Line, Group, Transf
 const COARSE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
 import { cssFilter, gradientProps, scalePath, shadowProps, strokeGradientProps } from '../lib/pathscale.js';
 import { maskPath } from '../lib/elements.js';
+import { resolveText } from '../lib/pages.js';
 
 function useImg(src) {
   const [img, setImg] = useState(null);
@@ -49,12 +50,12 @@ export function cropBox(el, iw, ih) {
   return { fw, fh, ox: (fw - W) * (c.x ?? 0.5), oy: (fh - H) * (c.y ?? 0.5) };
 }
 
-function TextEl({ el, common, hidden, onEdit, sh }) {
+function TextEl({ el, common, hidden, onEdit, sh, pageNo, pageTotal }) {
   const ref = useRef(null);
   const [h, setH] = useState(el.fontSize * 1.2);
   useLayoutEffect(() => { const n = ref.current; if (n) { const nh = n.height(); if (Math.abs(nh - h) > 0.5) setH(nh); } });
   const grad = el.gradient ? gradientProps(el.gradient, el.width, h) : {};
-  return <Text ref={ref} {...common} text={el.text} width={el.width} fontSize={el.fontSize} fontFamily={el.fontFamily}
+  return <Text ref={ref} {...common} text={resolveText(el, pageNo, pageTotal)} width={el.width} fontSize={el.fontSize} fontFamily={el.fontFamily}
     fontStyle={el.fontStyle || 'normal'} fill={el.fill} {...grad} align={el.align} lineHeight={el.lineHeight || 1.2}
     letterSpacing={el.letterSpacing || 0} textDecoration={el.textDecoration || ''} wrap="word"
     stroke={el.textStroke || undefined} strokeWidth={el.textStroke ? el.textStrokeWidth || 2 : 0} fillAfterStrokeEnabled
@@ -223,9 +224,10 @@ function TableEl({ el, common }) {
 const SNAP = 8;
 
 const CanvasStage = forwardRef(function CanvasStage(
-  { doc, scale, selectedId, selectedIds = [], onSelect, onChange, onChangeMany, onMarquee, onEditText, editingId, fontTick }, ref,
+  { doc, scale, selectedId, selectedIds = [], onSelect, onChange, onChangeMany, onMarquee, onEditText, editingId, fontTick, pageNo = 1, pageTotal = 1 }, ref,
 ) {
   const stageRef = useRef(null);
+  const docRef = useRef(doc); docRef.current = doc;
   const trRef = useRef(null);
   const uiRef = useRef(null);
   const [guides, setGuides] = useState([]);
@@ -279,6 +281,20 @@ const CanvasStage = forwardRef(function CanvasStage(
       const url = stageRef.current.toDataURL({ pixelRatio: k, mimeType: 'image/jpeg', quality: 0.7 });
       ui.show();
       return url;
+    },
+    async ready(timeout = 6000) {
+      const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+      await frame(); await frame();
+      try { await document.fonts?.ready; } catch {}
+      const t0 = Date.now();
+      while (Date.now() - t0 < timeout) {
+        const st = stageRef.current; if (!st) return;
+        const want = docRef.current.elements.filter((e) => e.type === 'image' && e.src && e.visible !== false).length;
+        const imgs = st.find('Image');
+        const ok = imgs.length >= want && imgs.every((n) => { const im = n.image(); return !im || im.complete !== false; });
+        if (ok) { await frame(); st.batchDraw(); await frame(); return; }
+        await new Promise((r) => setTimeout(r, 80));
+      }
     },
     elementAt(clientX, clientY) {
       const st = stageRef.current; const box = st.container().getBoundingClientRect();
@@ -376,7 +392,7 @@ const CanvasStage = forwardRef(function CanvasStage(
     const sh = shadowProps(el.shadow);
     switch (el.type) {
       case 'text':
-        return <TextEl key={el.id} el={el} common={common} hidden={editingId === el.id} onEdit={() => onEditText(el.id)} sh={sh} />;
+        return <TextEl key={el.id} el={el} common={common} hidden={editingId === el.id} onEdit={() => onEditText(el.id)} sh={sh} pageNo={pageNo} pageTotal={pageTotal} />;
       case 'rect':
         return <Rect {...common} width={el.width} height={el.height} fill={el.fill} cornerRadius={el.cornerRadius || 0}
           stroke={el.stroke} strokeWidth={el.strokeWidth || 0} {...gradientProps(el.gradient, el.width, el.height)} {...sh} />;

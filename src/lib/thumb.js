@@ -2,6 +2,7 @@
 import { cssFilter, scalePath } from './pathscale.js';
 import { maskPath } from './elements.js';
 import { loadImage } from './util.js';
+import { resolveText } from './pages.js';
 
 function paint(ctx, e, w, h, ox = 0, oy = 0) {
   const g = e.gradient;
@@ -106,7 +107,7 @@ export async function docThumb(doc, key, maxSide = 360) {
       if ('letterSpacing' in ctx) ctx.letterSpacing = `${e.letterSpacing || 0}px`;
       ctx.textAlign = e.align === 'center' ? 'center' : e.align === 'right' ? 'right' : 'left';
       const ax = e.align === 'center' ? e.width / 2 : e.align === 'right' ? e.width : 0;
-      const lines = wrap(ctx, e.text, e.width);
+      const lines = wrap(ctx, resolveText(e, doc.pageNo || 1, doc.pageTotal || 1), e.width);
       shadow(ctx, e.shadow);
       if (e.textStroke) { ctx.strokeStyle = e.textStroke; ctx.lineWidth = (e.textStrokeWidth || 2) * 2; ctx.lineJoin = 'round'; lines.forEach((ln, i) => ctx.strokeText(ln, ax, e.fontSize * (0.9 + i * (e.lineHeight || 1.2)))); }
       lines.forEach((ln, i) => ctx.fillText(ln, ax, e.fontSize * (0.9 + i * (e.lineHeight || 1.2))));

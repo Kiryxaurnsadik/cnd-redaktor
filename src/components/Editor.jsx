@@ -1,6 +1,6 @@
 // Если крадёте, то крадите ради реально хороших людей
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, BadgeCheck, BookmarkPlus, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, Send, Shapes, Type, Undo2, X, SlidersHorizontal, Minus, Plus, ChevronDown } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, BookOpen, FileText, FolderArchive, BookmarkPlus, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, Send, Shapes, Type, Undo2, X, SlidersHorizontal, Minus, Plus, ChevronDown } from 'lucide-react';
 import ThemeToggle from './ThemeToggle.jsx';
 import { HelpButton, TIPS } from './Help.jsx';
 import { Who } from './TopBar.jsx';
@@ -11,8 +11,13 @@ import PropsPanel from './PropsPanel.jsx';
 import SkinPoser from './SkinPoser.jsx';
 import { BgRemoveModal, UpscaleModal } from './ImageTools.jsx';
 import { importKind } from '../lib/importers.js';
+import { photoInFrame } from '../lib/frames.js';
 import { BrandPanel, PhotosPanel, TemplatesPanel, TextPanel } from './Panels.jsx';
 import ElementsPanel from './ElementsPanel.jsx';
+import PageBar from './PageBar.jsx';
+import MagazinePanel from './MagazinePanel.jsx';
+import { addPage, allPages, applyToAllPages, goPage, movePage, pageCount, pageDoc, pageIndex, removePage, withPages } from '../lib/pages.js';
+import { canvasJpeg, makePdf } from '../lib/pdfwrite.js';
 import { docThumb } from '../lib/thumb.js';
 import { elName } from './PropsPanel.jsx';
 import { BRAND } from '../lib/brand.js';
@@ -25,7 +30,7 @@ import { withIds } from '../lib/templates.js';
 import { canManage, compressImage, loadImage, roleLabel, uid } from '../lib/util.js';
 
 const RAIL = [
-  ['templates', LayoutTemplate, 'Шаблоны'], ['text', Type, 'Текст'], ['photos', ImageIcon, 'Фото'],
+  ['templates', LayoutTemplate, 'Шаблоны'], ['magazine', BookOpen, 'Журнал'], ['text', Type, 'Текст'], ['photos', ImageIcon, 'Фото'],
   ['elements', Shapes, 'Элементы'], ['brand', BadgeCheck, 'Бренд'],
 ];
 
@@ -80,6 +85,7 @@ export default function Editor({ session, left, go, open }) {
         setDocState(w.doc); setTitle(w.title || 'Без названия'); setAuthor(w.author);
       });
     } else setDocState(open.doc);
+    if (open.notice) setTimeout(() => { setToast(open.notice); setTimeout(() => setToast(''), 6000); }, 400);
   }, []);
 
   useEffect(() => {
@@ -126,6 +132,24 @@ export default function Editor({ session, left, go, open }) {
     return () => window.removeEventListener('pointerup', onUp);
   }, [selectedId, mobile]);
 
+  useEffect(() => {
+    docRef.current = doc;
+    if (!doc || pageCount(doc) < 2) return undefined;
+    clearTimeout(thumbTimer.current);
+    thumbTimer.current = setTimeout(async () => {
+      const pages = allPages(doc); const cur = pageIndex(doc);
+      const next = {};
+      for (let i = 0; i < pages.length; i++) {
+        const p = pages[i];
+        const key = `${p.id}:${JSON.stringify(p).length}`;
+        if (i === cur) { const u = stageApi.current?.toThumb(160); if (u) next[p.id] = u; continue; }
+        try { next[p.id] = await docThumb(pageDoc(doc, i), key, 160); } catch {}
+      }
+      setPageThumbs(next);
+    }, 500);
+    return () => clearTimeout(thumbTimer.current);
+  }, [doc]);
+
   const touched = useRef(false);
   const commit = useCallback((next) => {
     touched.current = true;
@@ -139,6 +163,16 @@ export default function Editor({ session, left, go, open }) {
       return value;
     });
   }, []);
+  const docRef = useRef(null);
+  const [pageThumbs, setPageThumbs] = useState({});
+  const thumbTimer = useRef(null);
+  const switchPage = (i) => { setSelectedId(null); setEditingId(null); setDocState((d) => goPage(d, i)); };
+  const pageOps = {
+    add: (i) => { commit((d) => addPage(goPage(d, i), i, false)); setSelectedId(null); },
+    duplicate: (i) => { commit((d) => addPage(goPage(d, i), i, true)); setSelectedId(null); flash('Страница продублирована'); },
+    remove: (i) => { commit((d) => removePage(d, i)); setSelectedId(null); },
+    move: (a, b) => commit((d) => movePage(d, a, b)),
+  };
   const undo = () => { const h = history.current; if (!h.past.length) return; touched.current = true; setDocState((cur) => { h.future.push(cur); return h.past.pop(); }); };
   const redo = () => { const h = history.current; if (!h.future.length) return; touched.current = true; setDocState((cur) => { h.past.push(cur); return h.future.pop(); }); };
 
@@ -475,7 +509,7 @@ export default function Editor({ session, left, go, open }) {
     if (!doc) return;
     const id = workId || uid();
     if (!workId) setWorkId(id);
-    const thumb = stageApi.current?.toThumb(360);
+    const thumb = pageIndex(doc) === 0 ? stageApi.current?.toThumb(360) : await docThumb(pageDoc(doc, 0), null, 360).catch(() => stageApi.current?.toThumb(360));
     try {
       await api.saveWork({ id, title, doc, thumb, ...extra });
       setSaved(`Сохранено ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`);
@@ -519,7 +553,17 @@ export default function Editor({ session, left, go, open }) {
       const big = scaled(canvas, 1600, 0.85); const small = scaled(canvas, 420, 0.72);
       await api.archiveAdd({ title: title || 'Без названия', workId, image: big.url, thumb: small.url, width: big.w, height: big.h });
       if (!quiet) flash('Работа добавлена в ленту архива');
-    } catch (e) { flash(`Архив: ${e.message}`); }
+      return true;
+    } catch (e) {
+      const m = /function|does not exist|column/i.test(e.message) ? 'база устарела, главному редактору нужно заново запустить schema.sql в Supabase' : e.message;
+      setToast(`Архив не сохранил работу: ${m}`); setTimeout(() => setToast(''), 7000);
+      return false;
+    }
+  };
+  const archiveNow = async () => {
+    setExportOpen(false);
+    const canvas = await renderFinal('архив', exportOpts.mult);
+    await addToArchive(canvas, false);
   };
   const archiveIfNeeded = (canvas) => { if (toArchive) addToArchive(canvas, true); };
 
@@ -527,7 +571,7 @@ export default function Editor({ session, left, go, open }) {
     const { format, mult, quality } = exportOpts;
     const type = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' }[format];
     const canvas = await renderFinal(format, mult);
-    archiveIfNeeded(canvas);
+    if (toArchive) addToArchive(canvas, false);
     const blob = await toBlob(canvas, type, quality);
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -535,6 +579,44 @@ export default function Editor({ session, left, go, open }) {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
     setExportOpen(false);
+  };
+
+  const [allBusy, setAllBusy] = useState('');
+  const exportAll = async (kind) => {
+    const total = pageCount(doc); const start = pageIndex(doc);
+    setEditingId(null); setSelectedId(null); setExportOpen(false);
+    let exportId = '';
+    try { const rec = await api.logExport({ workId, title, format: `${kind}-${total}стр`, watermark: WATERMARK_STYLES[styleNow] || styleNow }); exportId = rec?.id || ''; } catch {}
+    const mult = kind === 'pdf' ? Math.max(1, exportOpts.mult) : exportOpts.mult;
+    const out = [];
+    try {
+      for (let i = 0; i < total; i++) {
+        setAllBusy(`Готовлю страницу ${i + 1} из ${total}…`);
+        setDocState((d) => goPage(d, i));
+        await new Promise((r) => setTimeout(r, 60));
+        await stageApi.current.ready();
+        const canvas = stageApi.current.toCanvas(mult);
+        await applyWatermark(canvas, { author: session.nickname, exportId, opacity: settings.watermarkOpacity, corner: settings.watermarkCorner, style: styleNow, avoid: [] });
+        if (i === 0) archiveIfNeeded(canvas);
+        if (kind === 'pdf') out.push({ jpeg: await canvasJpeg(canvas, Math.max(0.85, exportOpts.quality)), pxW: canvas.width, pxH: canvas.height, width: doc.width, height: doc.height });
+        else out.push(await toBlob(canvas, 'image/png'));
+      }
+      setAllBusy('Собираю файл…');
+      const base = (title || 'cnd').replace(/[\\/:*?"<>|]+/g, '_');
+      let blob, name;
+      if (kind === 'pdf') { blob = makePdf(out, { title: title || 'CND' }); name = `${base}.pdf`; }
+      else {
+        const { default: JSZip } = await import('jszip');
+        const zip = new JSZip();
+        out.forEach((b, i) => zip.file(`${String(i + 1).padStart(2, '0')}.png`, b));
+        blob = await zip.generateAsync({ type: 'blob' }); name = `${base}.zip`;
+      }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+      flash(`Готово: ${total} стр. в ${kind.toUpperCase()}`);
+    } catch (e) { flash(`Не получилось: ${e.message}`); }
+    setDocState((d) => goPage(d, start));
+    setAllBusy('');
   };
 
   const copyToClipboard = () => {
@@ -566,16 +648,37 @@ export default function Editor({ session, left, go, open }) {
   };
 
   const [tplForm, setTplForm] = useState(null);
+  const [myTpls, setMyTpls] = useState([]);
+  const guessKind = () => (pageCount(doc) > 1 ? 'Журнал' : doc.width > doc.height ? 'Разворот' : doc.width === doc.height ? 'Пост' : 'Газета');
+  const openTplForm = () => {
+    setTplForm({ name: title, tags: '', kind: guessKind(), target: '' });
+    api.listTemplates().then((list) => {
+      const mine = list.filter((t) => !t.official && t.author === session.nickname);
+      setMyTpls(mine);
+      const src = mine.find((t) => t.id === doc.fromTpl);
+      if (src) setTplForm((f) => f && ({ ...f, target: src.id, name: src.name, tags: (src.tags || []).join(', '), kind: src.kind || f.kind }));
+    }).catch(() => setMyTpls([]));
+  };
+  const pickTarget = (id) => {
+    const t = myTpls.find((x) => x.id === id);
+    setTplForm((f) => (t ? { ...f, target: id, name: t.name, tags: (t.tags || []).join(', '), kind: t.kind || f.kind } : { ...f, target: '' }));
+  };
   const saveAsTemplate = async () => {
     const name = tplForm.name.trim(); if (!name) { flash('Введите название шаблона'); return; }
     const tags = tplForm.tags.split(',').map((t) => t.trim()).filter(Boolean);
+    const target = tplForm.target;
     setTplForm(null);
-    const clean = { ...doc, elements: doc.elements.map((e) => ({ ...e })) };
+    const d0 = pageCount(doc) > 1 ? withPages(doc, allPages(doc), 0) : doc;
+    const { fromTpl, ...clean } = { ...d0, elements: d0.elements.map((e) => ({ ...e })) };
+    const thumb = pageIndex(doc) === 0 ? stageApi.current.toThumb(360) : await docThumb(pageDoc(doc, 0), null, 360);
     try {
-      await api.saveTemplate({ name, tags, kind: doc.width > doc.height ? 'Разворот' : doc.width === doc.height ? 'Пост' : 'Газета', thumb: stageApi.current.toThumb(360), doc: clean });
-      flash('Шаблон опубликован — коллеги найдут его в поиске');
+      const rec = await api.saveTemplate({ ...(target ? { id: target } : {}), name, tags, kind: (tplForm.kind || guessKind()).trim(), thumb, doc: clean });
+      if (rec?.id) setDocState((d) => ({ ...d, fromTpl: rec.id }));
+      touched.current = true;
+      flash(target ? 'Шаблон обновлён у всех' : 'Шаблон опубликован — он в разделе «Ваши работы» в шаблонах');
     } catch (e) { flash(e.message); }
   };
+  const TPL_KINDS = ['Газета', 'Журнал', 'Пост', 'Разворот', 'Сторис', 'Афиша', 'Quick', 'Стекло', 'Другое'];
 
   if (!doc) return <div className="editor"><div className="topbar">Загрузка…</div></div>;
 
@@ -596,7 +699,7 @@ export default function Editor({ session, left, go, open }) {
         </select>
         <div className="grow" />
         <Who compact session={session} label={author !== session.nickname ? `Автор: ${author}` : session.nickname} />
-        <button className="hide-phone" onClick={() => setTplForm({ name: title, tags: '' })} title="Опубликовать дизайн как шаблон для коллег"><BookmarkPlus size={16} /> <span className="lbl">В шаблоны</span></button>
+        <button className="hide-phone" onClick={openTplForm} title="Опубликовать дизайн как шаблон для коллег"><BookmarkPlus size={16} /> <span className="lbl">В шаблоны</span></button>
         <button className="hide-phone" onClick={copyToClipboard} title="Копировать картинку в буфер (Ctrl+Shift+C)" aria-label="Копировать"><Copy size={16} /> <span className="lbl">Копировать</span></button>
         <HelpButton start="editor" role={session.role} />
         <span className="hide-phone row" style={{ gap: 8 }}><UserSettingsButton /><ThemeToggle /></span>
@@ -626,9 +729,16 @@ export default function Editor({ session, left, go, open }) {
                 <input type="checkbox" style={{ width: 'auto' }} checked={toArchive} onChange={(e) => setToArchive(e.target.checked)} />
                 <span className="small">Добавить в ленту архива CND</span>
               </label>
-              <button className="primary" style={{ width: '100%', marginTop: 10 }} onClick={download}><Download size={16} /> Скачать файл</button>
+              <button style={{ width: '100%', marginTop: 6 }} onClick={archiveNow} title="Положить работу в ленту архива без скачивания"><FolderArchive size={16} /> Только в архив</button>
+              <button className="primary" style={{ width: '100%', marginTop: 10 }} onClick={download}><Download size={16} /> {pageCount(doc) > 1 ? `Скачать страницу ${pageIndex(doc) + 1}` : 'Скачать файл'}</button>
+              {pageCount(doc) > 1 && (
+                <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                  <button className="grow" onClick={() => exportAll('pdf')} title="Все страницы одним PDF"><FileText size={16} /> Весь PDF</button>
+                  <button className="grow" onClick={() => exportAll('zip')} title="Все страницы картинками в ZIP"><FolderArchive size={16} /> ZIP ({pageCount(doc)})</button>
+                </div>
+              )}
               <button style={{ width: '100%', marginTop: 6 }} onClick={copyToClipboard}><Copy size={16} /> Копировать в буфер (PNG)</button>
-              {mobile && <button style={{ width: '100%', marginTop: 6 }} onClick={() => { setExportOpen(false); setTplForm({ name: title, tags: '' }); }}><BookmarkPlus size={16} /> Опубликовать как шаблон</button>}
+              {mobile && <button style={{ width: '100%', marginTop: 6 }} onClick={() => { setExportOpen(false); openTplForm(); }}><BookmarkPlus size={16} /> Опубликовать как шаблон</button>}
               {!!channels.length && (
                 <div className="menu-discord">
                   <label>Отправить в Discord</label>
@@ -662,12 +772,16 @@ export default function Editor({ session, left, go, open }) {
         <div className={`drawer ${mobile ? 'sheet' : ''}`} hidden={mobile && sheet !== 'drawer'}>
           {mobile && <SheetHead title={(RAIL.find((r) => r[0] === tab) || [])[2]} onClose={() => setSheet(null)} />}
           {tab === 'templates' && <TemplatesPanel applyTemplate={applyTemplate} />}
+          {tab === 'magazine' && <MagazinePanel doc={doc} add={add} flash={flash}
+            replaceDoc={(d) => { commit(d); setSelectedId(null); }}
+            addAllPages={(fn) => commit((d) => applyToAllPages(d, fn))} />}
           {tab === 'text' && <TextPanel add={add} />}
           {tab === 'photos' && <PhotosPanel addImageFile={addImageFile} uploads={uploads} addImage={addImage} importResult={importResult} docW={doc.width} pendingImport={pendingImport} clearPending={() => setPendingImport(null)} />}
           {tab === 'elements' && <ElementsPanel add={add} addImage={addImage} flash={flash} openPoser={(skin, mode = 'body') => setPoserSkin({ skin, mode })} />}
           {tab === 'brand' && <BrandPanel addImage={addImage} applyColor={applyColor} applyFont={applyFont} />}
           {tab !== 'photos' && <input id="photo-file" type="file" accept="image/*" hidden onChange={(e) => { [...e.target.files].forEach((f) => addImageFile(f)); e.target.value = ''; }} />}
         </div>
+        <div className="work-col">
         <div className="workspace" ref={wsRef}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
@@ -682,7 +796,7 @@ export default function Editor({ session, left, go, open }) {
           <div className="stage-shadow" style={{ position: 'relative' }}>
             <CanvasStage ref={stageApi} doc={doc} scale={scale} selectedId={selectedId} selectedIds={selIds} onSelect={pick}
               onChangeMany={updateMany} onMarquee={(ids, add) => selectIds(add ? [...selIds, ...ids.flatMap(groupOf)] : ids.flatMap(groupOf))}
-              onChange={update} onEditText={setEditingId} editingId={editingId} fontTick={fontTick} />
+              onChange={update} onEditText={setEditingId} editingId={editingId} fontTick={fontTick} pageNo={pageIndex(doc) + 1} pageTotal={pageCount(doc)} />
             {editingEl?.type === 'text' && <TextOverlay el={editingEl} scale={scale} onDone={(text) => { if (text !== editingEl.text) update(editingEl.id, { text }); setEditingId(null); }} />}
           </div>
           {!doc.elements.length && <div className="empty-hint"><div>Лист пустой. Выберите <b>шаблон</b> или добавьте <b>текст</b>{mobile ? ' на панели снизу.' : ' слева. Фото можно просто перетащить сюда.'}</div></div>}
@@ -693,6 +807,9 @@ export default function Editor({ session, left, go, open }) {
               <button className="ghost icon" aria-label="Скрыть подсказки" title="Скрыть подсказки" onClick={hideTips}><X size={14} /></button>
             </div>
           )}
+        </div>
+        <PageBar pages={allPages(doc)} current={pageIndex(doc)} thumbs={pageThumbs} ratio={`${doc.width} / ${doc.height}`}
+          onGo={switchPage} onAdd={pageOps.add} onDuplicate={pageOps.duplicate} onDelete={pageOps.remove} onMove={pageOps.move} />
         </div>
         {mobile && (
           <div className="zoom-fab">
@@ -707,6 +824,7 @@ export default function Editor({ session, left, go, open }) {
           multi={isMulti ? selIds : null} ctl={ctl} />
         </div>
       </div>
+      {allBusy && <div className="busy-overlay"><div className="card">{allBusy}</div></div>}
       {imageTool && selected?.type === 'image' && (() => {
         const Tool = imageTool === 'bg' ? BgRemoveModal : UpscaleModal;
         return <Tool el={selected} onClose={() => setImageTool(null)} onApply={(src, orig) => { update(selected.id, { src, origSrc: orig }); setImageTool(null); flash(imageTool === 'bg' ? 'Фон убран' : 'Качество улучшено'); }} />;
@@ -715,14 +833,24 @@ export default function Editor({ session, left, go, open }) {
       {tplForm && (
         <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && setTplForm(null)}>
           <form className="modal" style={{ maxWidth: 420 }} onSubmit={(e) => { e.preventDefault(); saveAsTemplate(); }}>
-            <h2>Сохранить как шаблон</h2>
-            <p className="small muted">Шаблон появится в общей библиотеке, коллеги найдут его поиском.</p>
+            <h2>{tplForm.target ? 'Обновить шаблон' : 'Сохранить как шаблон'}</h2>
+            <p className="small muted">{tplForm.target ? 'Шаблон заменится у всех: коллеги увидят новую версию.' : 'Шаблон появится в общей библиотеке, коллеги найдут его поиском.'}</p>
+            {myTpls.length > 0 && (<>
+              <label htmlFor="tpl-target">Куда</label>
+              <select id="tpl-target" value={tplForm.target} onChange={(e) => pickTarget(e.target.value)}>
+                <option value="">Новый шаблон</option>
+                {myTpls.map((t) => <option key={t.id} value={t.id}>Обновить «{t.name}»</option>)}
+              </select>
+            </>)}
             <label htmlFor="tpl-name">Название</label>
             <input id="tpl-name" autoFocus value={tplForm.name} onChange={(e) => setTplForm({ ...tplForm, name: e.target.value })} />
             <label htmlFor="tpl-tags">Теги через запятую</label>
             <input id="tpl-tags" placeholder="газета, новости, срочно" value={tplForm.tags} onChange={(e) => setTplForm({ ...tplForm, tags: e.target.value })} />
+            <label htmlFor="tpl-kind">Раздел</label>
+            <input id="tpl-kind" list="tpl-kinds" value={tplForm.kind} onChange={(e) => setTplForm({ ...tplForm, kind: e.target.value })} />
+            <datalist id="tpl-kinds">{TPL_KINDS.map((k) => <option key={k} value={k} />)}</datalist>
             <div className="row" style={{ marginTop: 14 }}>
-              <button type="submit" className="primary">Опубликовать шаблон</button>
+              <button type="submit" className="primary">{tplForm.target ? 'Обновить у всех' : 'Опубликовать шаблон'}</button>
               <button type="button" onClick={() => setTplForm(null)}>Отмена</button>
             </div>
           </form>
@@ -777,13 +905,3 @@ function isFrame(e, strict = false) {
   return !strict && e.type === 'image' && !!(e.mask || e.clipPath);
 }
 
-function photoInFrame(e, src) {
-  const fromShape = e.type === 'shape';
-  return {
-    id: e.id, type: 'image', src, x: e.x, y: e.y, width: e.width, height: e.height, rotation: e.rotation, opacity: e.opacity,
-    name: e.type === 'image' ? e.name : undefined, mask: fromShape ? undefined : e.mask, cornerRadius: e.cornerRadius,
-    clipPath: fromShape ? e.path : e.clipPath, clipVb: fromShape ? e.vb : e.clipVb,
-    frameStroke: fromShape ? (e.strokeWidth ? e.stroke || '#000000' : undefined) : e.frameStroke,
-    frameStrokeWidth: fromShape ? e.strokeWidth : e.frameStrokeWidth, shadow: e.shadow, fx: e.type === 'shape' ? undefined : e.fx,
-  };
-}

@@ -4,10 +4,11 @@ import { api } from '../api/index.js';
 import TopBar from './TopBar.jsx';
 import Countdown from './Countdown.jsx';
 import { Credit, HelpModal } from './Help.jsx';
-import { Archive as ArchiveIcon, BookOpen, ChevronDown, ChevronRight, FilePlus2, FolderOpen, LayoutTemplate, Lightbulb, RotateCcw, Search, Shield, Trash2, X } from 'lucide-react';
+import { Archive as ArchiveIcon, BookOpen, ChevronDown, ChevronRight, FilePlus2, FolderOpen, LayoutTemplate, Lightbulb, Pencil, RotateCcw, Search, Shield, Trash2, X } from 'lucide-react';
 import { ArchiveCard, ArchiveViewer, LikeButton, PinButton, useArchive } from './Archive.jsx';
 import { OFFICIAL_TEMPLATES, SIZES, blankDoc, withIds } from '../lib/templates.js';
 import { docThumb } from '../lib/thumb.js';
+import { fontsReady } from '../lib/textfit.js';
 import { can, canOpenAdmin, formatDate, roleLabel } from '../lib/util.js';
 
 function Thumb({ doc, src, k }) {
@@ -33,10 +34,11 @@ export default function Home({ session, logout, left, go }) {
   };
   useEffect(reload, []);
 
-  const allTemplates = useMemo(() => [...templates.filter((t) => t.pinned), ...OFFICIAL_TEMPLATES, ...templates.filter((t) => !t.pinned)], [templates]);
+  const allTemplates = useMemo(() => [...templates.filter((t) => t.pinned), ...templates.filter((t) => !t.pinned && !t.official && t.author === session.nickname), ...OFFICIAL_TEMPLATES, ...templates.filter((t) => !t.pinned && !(t.author === session.nickname && !t.official))], [templates]);
   const patchTpl = (id, p) => setTemplates((list) => list.map((t) => (t.id === id ? { ...t, ...p } : t)));
   const PINNED = 'Закреплённые';
-  const groupOf = (t) => (t.pinned ? PINNED : t.kind || 'Другое');
+  const MINE = 'Ваши работы';
+  const groupOf = (t) => (t.pinned ? PINNED : mineTpl(t) ? MINE : t.kind || 'Другое');
   const kinds = [...new Set(allTemplates.map((t) => t.kind).filter(Boolean))];
   const [collapsed, setCollapsed] = useState(() => { try { return JSON.parse(localStorage.getItem('cnd_tpl_collapsed') || '[]'); } catch { return []; } });
   const toggleKind = (k) => setCollapsed((c) => {
@@ -49,9 +51,15 @@ export default function Home({ session, logout, left, go }) {
     return (!q || hay.includes(q.toLowerCase())) && (!kind || t.kind === kind);
   });
 
-  const openTemplate = (t) => {
-    if (!t.official) api.useTemplate(t.id).catch(() => {});
-    go({ name: 'editor', doc: withIds(structuredClone(t.doc)), title: t.name });
+  const mineTpl = (t) => !t.official && t.author === session.nickname;
+  const openTemplate = async (t, edit = false) => {
+    const mine = mineTpl(t);
+    if (!t.official && !mine) api.useTemplate(t.id).catch(() => {});
+    let src = t.doc;
+    if (t.rebuild) { await fontsReady(t.fonts || []); src = t.rebuild(); }
+    const doc = withIds(structuredClone(src));
+    if (mine) doc.fromTpl = t.id;
+    go({ name: 'editor', doc, title: t.name, notice: edit ? 'Измените шаблон и нажмите «В шаблоны» → «Обновить у всех»' : '' });
   };
   const [armed, setArmed] = useState(null);
   const arm = (id) => { setArmed(id); setTimeout(() => setArmed((a) => (a === id ? null : a)), 4000); };
@@ -152,7 +160,7 @@ export default function Home({ session, logout, left, go }) {
               <Thumb doc={t.doc} src={t.thumb} k={t.id} />
               <div className="meta">
                 <div className="row"><b className="grow">{t.name}</b>{t.official && <span className="badge blue">CND</span>}</div>
-                <div className="muted">{t.official ? 'Официальный' : `Автор: ${t.author} · взяли ${t.uses || 0} раз`}</div>
+                <div className="muted">{t.official ? `Официальный${t.pagesCount ? ` · ${t.pagesCount} стр.` : ''}` : mineTpl(t) ? `Ваш шаблон · взяли ${t.uses || 0} раз` : `Автор: ${t.author} · взяли ${t.uses || 0} раз`}</div>
                 {'likes' in t && (
                   <div className="row tile-actions">
                     <LikeButton kind="template" item={t} onChange={(p) => patchTpl(t.id, p)} flash={setError} />
@@ -160,7 +168,10 @@ export default function Home({ session, logout, left, go }) {
                   </div>
                 )}
                 {!t.official && (t.author === session.nickname || can(session, 'templates')) && (
-                  <button className="ghost danger small" style={{ justifySelf: 'start' }} onClick={(e) => { e.stopPropagation(); removeTemplate(t); }}><Trash2 size={14} />{armed === t.id ? 'Точно удалить?' : 'Удалить'}</button>
+                  <div className="row tile-actions">
+                    {mineTpl(t) && <button className="ghost small" title="Открыть, поправить и обновить у всех" onClick={(e) => { e.stopPropagation(); openTemplate(t, true); }}><Pencil size={14} /> Обновить</button>}
+                    <button className="ghost danger small" onClick={(e) => { e.stopPropagation(); removeTemplate(t); }}><Trash2 size={14} />{armed === t.id ? 'Точно убрать?' : 'Убрать'}</button>
+                  </div>
                 )}
               </div>
             </div>
@@ -219,7 +230,8 @@ export default function Home({ session, logout, left, go }) {
         <div className="grid arch-grid">
           {arch.items.map((a) => <ArchiveCard key={a.id} a={a} onOpen={setArchOpen} session={session} flash={setError} onChange={(p) => patchArch(a.id, p)} />)}
         </div>
-        {!arch.items.length && <p className="muted">Пока пусто. Скачайте или скопируйте готовую работу, и она появится здесь для всей редакции.</p>}
+        {arch.error && <div className="error">Архив не загрузился: {arch.error}</div>}
+        {!arch.items.length && !arch.error && <p className="muted">Пока пусто. Скачайте или скопируйте готовую работу, и она появится здесь для всей редакции.</p>}
         {archOpen && <ArchiveViewer item={archOpen} session={session} go={go} flash={(m) => setError(m)} onChange={(p) => patchArch(archOpen.id, p)} onClose={() => setArchOpen(null)} onDeleted={(id) => arch.setItems(arch.items.filter((x) => x.id !== id))} />}
         <div className="footer"><Credit className="grow" /><span>California NewsDay · Real news. California.</span></div>
       </div>

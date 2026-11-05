@@ -447,3 +447,33 @@ button.linkish { background: none; border: 0; padding: 0; color: var(--brand); t
 .perm-table .pos-names { font-weight: 400; font-size: 12px; color: var(--muted); display: block; }
 .perm-wrap { overflow-x: auto; }
 :root.has-ui-font, :root.has-ui-font body, :root.has-ui-font button, :root.has-ui-font input, :root.has-ui-font select, :root.has-ui-font textarea, :root.has-ui-font h1, :root.has-ui-font h2, :root.has-ui-font h3, :root.has-ui-font h4, :root.has-ui-font label { font-family: var(--ui-font); }
+.work-col { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.work-col .workspace { flex: 1; min-height: 0; }
+.pagebar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--panel); border-top: 1px solid var(--line); min-height: 0; }
+.pg-tools { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.pg-count { font-size: 12px; color: var(--muted); white-space: nowrap; margin-right: 4px; }
+.pg-list { display: flex; gap: 8px; overflow-x: auto; padding: 2px; flex: 1; min-width: 0; }
+.pg { display: grid; gap: 3px; padding: 3px; border: 1px solid transparent; border-radius: 8px; background: none; flex-shrink: 0; cursor: pointer; justify-items: center; min-height: 0; }
+.pg.on { border-color: var(--brand); background: var(--brand-soft); }
+.pg-thumb { display: grid; place-items: center; height: 64px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2) center / cover no-repeat; color: var(--muted); }
+.pg-no { font-size: 11px; color: var(--muted); }
+.pg-add .pg-thumb { border-style: dashed; background: none; }
+.busy-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 60; }
+.busy-overlay .card { padding: 18px 24px; font-weight: 600; }
+.mag-styles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mag-styles button { display: grid; gap: 4px; padding: 6px; text-align: center; border-radius: 10px; }
+.mag-styles button.on { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.mag-sw { position: relative; display: grid; place-items: center; height: 54px; border-radius: 6px; overflow: hidden; }
+.mag-sw b { font-size: 18px; letter-spacing: 1px; }
+.mag-sw i { position: absolute; bottom: 0; height: 6px; width: 50%; }
+.mag-sw i:first-of-type { left: 0; } .mag-sw i:last-of-type { right: 0; }
+.mag-pages { display: grid; gap: 4px; }
+.mag-page { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; background: var(--panel-2); }
+.mag-page .pg-n { width: 20px; text-align: center; font-weight: 700; color: var(--brand-text); }
+.mag-page button { min-height: 0; padding: 0 6px; }
+.mag-add { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.mag-add button { font-size: 11px; padding: 3px 8px; border-radius: 99px; }
+.mag-photos { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 6px; }
+.mag-photos button { aspect-ratio: 1; background: center / cover no-repeat; border-radius: 6px; padding: 0; position: relative; }
+.mag-photos span { position: absolute; left: 2px; top: 2px; font-size: 10px; background: rgba(0,0,0,.6); color: #fff; border-radius: 4px; padding: 0 4px; }
+@media (max-width: 1024px) { .pagebar { padding: 6px 8px; gap: 6px; } .pg-tools .lbl { display: none; } .pg-thumb { height: 48px; } }

@@ -1,7 +1,9 @@
 // Если крадёте, то крадите ради реально хороших людей
 import { BRAND } from './brand.js';
 import { uid } from './util.js';
+import { docWithIds } from './pages.js';
 import { BUBBLES, ICONS, LINES, SHAPES, chartSpec, tableSpec } from './elements.js';
+import { MAG_TEMPLATES, QUICK_TEMPLATES } from './quicktpl.js';
 
 export const SIZES = [
   { key: 'a4', label: 'Газетная полоса A4', width: 1414, height: 2000 },
@@ -27,7 +29,7 @@ const G = (o) => R({ ...GLASS, ...o });
 const LOREM = 'Текст статьи о жизни штата Калифорния на AtlantWorld. Вставьте сюда материал или импортируйте его из Word. Колонки можно растягивать, а шрифт и выравнивание меняются справа.';
 
 export function withIds(doc) {
-  return { ...doc, elements: doc.elements.map((e) => ({ ...e, id: uid() })) };
+  return docWithIds(doc);
 }
 
 export const OFFICIAL_TEMPLATES = [
@@ -109,103 +111,41 @@ export const OFFICIAL_TEMPLATES = [
     },
   },
   {
-    id: 'cnd-magazine-cover', name: 'Обложка журнала', kind: 'Журнал', tags: ['журнал', 'обложка', 'выпуск', 'a4'], official: true, author: 'CND',
-    doc: {
-      width: 1414, height: 2000, background: '#0D1420',
-      elements: [
-        P({ x: 0, y: 0, width: 1414, height: 2000, label: 'Фото на всю обложку', fill: '#22324A' }),
-        R({ x: 0, y: 0, width: 1414, height: 360, fill: '#000000', opacity: 0.35 }),
-        T({ x: 60, y: 60, width: 1294, text: 'ВЫПУСК № 12 · НОЯБРЬ 2026 · ATLANTWORLD', fontFamily: 'Oswald', fontSize: 30, fill: '#FFFFFF', align: 'center', letterSpacing: 6 }),
-        T({ x: 40, y: 110, width: 1334, text: 'CALIFORNIA NEWSDAY', fontFamily: 'Playfair Display', fontSize: 148, fontStyle: 'bold', fill: '#FFFFFF', align: 'center', shadow: true }),
-        E({ x: 1124, y: 330, width: 210, height: 210, fill: '#8E1B1B', shadow: { color: '#000000', blur: 20, x: 0, y: 8, opacity: 0.4 } }),
-        T({ x: 1124, y: 382, width: 210, text: 'ВСЕГО\n$5', fontFamily: 'Russo One', fontSize: 44, fill: '#FFFFFF', align: 'center', lineHeight: 1.05, rotation: 0 }),
-        R({ x: 0, y: 1300, width: 1414, height: 700, fill: '#000000', opacity: 0.55 }),
-        R({ x: 80, y: 1360, width: 220, height: 56, fill: '#8E1B1B', cornerRadius: 6 }),
-        T({ x: 80, y: 1370, width: 220, text: 'ЭКСКЛЮЗИВ', fontFamily: 'Oswald', fontSize: 32, fill: '#FFFFFF', align: 'center', letterSpacing: 3 }),
-        T({ x: 80, y: 1440, width: 1150, text: 'Главная тема выпуска в одну-две строки', fontFamily: 'Playfair Display', fontSize: 96, fontStyle: 'bold', fill: '#FFFFFF', lineHeight: 1.05, shadow: true }),
-        R({ x: 80, y: 1700, width: 8, height: 64, fill: '#0B7CFC' }),
-        T({ x: 108, y: 1704, width: 560, text: 'Интервью с губернатором Калифорнии', fontFamily: 'Inter', fontSize: 28, fontStyle: 'bold', fill: '#FFFFFF' }),
-        R({ x: 700, y: 1700, width: 8, height: 64, fill: '#0B7CFC' }),
-        T({ x: 728, y: 1704, width: 560, text: 'Криминальная хроника штата', fontFamily: 'Inter', fontSize: 28, fontStyle: 'bold', fill: '#FFFFFF' }),
-        R({ x: 80, y: 1800, width: 8, height: 64, fill: '#0B7CFC' }),
-        T({ x: 108, y: 1804, width: 560, text: 'Бизнес: кто открылся в Калифорнии', fontFamily: 'Inter', fontSize: 28, fontStyle: 'bold', fill: '#FFFFFF' }),
-        R({ x: 700, y: 1800, width: 8, height: 64, fill: '#0B7CFC' }),
-        T({ x: 728, y: 1804, width: 460, text: 'События AtlantWorld за неделю', fontFamily: 'Inter', fontSize: 28, fontStyle: 'bold', fill: '#FFFFFF' }),
-        I({ x: 1214, y: 1800, width: 130, height: 130, src: BRAND.iconWhite, locked: true, name: 'Логотип CND' }),
-      ],
-    },
-  },
-  {
-    id: 'cnd-magazine-article', name: 'Журнал: статья', kind: 'Журнал', tags: ['журнал', 'статья', 'страница', 'a4', 'колонки'], official: true, author: 'CND',
+    id: 'cnd-statement', name: 'Официальное заявление', kind: 'Газета', tags: ['заявление', 'официально', 'пресс-релиз', 'документ', 'a4'], official: true, author: 'CND',
     doc: {
       width: 1414, height: 2000, background: '#FBFAF7',
       elements: [
-        T({ x: 80, y: 60, width: 700, text: 'CALIFORNIA NEWSDAY · ATLANTWORLD', fontFamily: 'Oswald', fontSize: 24, fill: '#5D6675', letterSpacing: 5 }),
-        T({ x: 734, y: 60, width: 600, text: 'РУБРИКА · КАЛИФОРНИЯ', fontFamily: 'Oswald', fontSize: 24, fill: '#0B7CFC', align: 'right', letterSpacing: 5 }),
-        L({ x: 80, y: 104, points: [0, 0, 1254, 0], stroke: '#14181F', strokeWidth: 2 }),
-        T({ x: 80, y: 150, width: 1254, text: 'Заголовок большой статьи, который цепляет с первого взгляда', fontFamily: 'Playfair Display', fontSize: 92, fontStyle: 'bold', fill: '#14181F', lineHeight: 1.05 }),
-        T({ x: 80, y: 420, width: 1000, text: 'Лид: два-три предложения о том, чем эта история важна для жителей Калифорнии и что читатель узнает дальше.', fontFamily: 'Merriweather', fontSize: 34, fontStyle: 'italic', fill: '#3A4250', lineHeight: 1.45 }),
-        T({ x: 80, y: 580, width: 800, text: 'Текст: Имя Фамилия · Фото: Имя Фамилия', fontFamily: 'Inter', fontSize: 24, fontStyle: 'bold', fill: '#0050BE' }),
-        P({ x: 80, y: 640, width: 1254, height: 700, label: 'Главное фото статьи', mask: 'roundtop', sample: { bg: './samples/street.jpg' } }),
-        T({ x: 80, y: 1356, width: 1254, text: 'Подпись к фото: кто на снимке и где это происходит.', fontFamily: 'PT Serif', fontSize: 22, fontStyle: 'italic', fill: '#5D6675' }),
-        T({ x: 80, y: 1420, width: 390, text: `${LOREM}\n\n${LOREM}`, fontFamily: 'PT Serif', fontSize: 25, align: 'justify', lineHeight: 1.45, fill: '#14181F' }),
-        T({ x: 512, y: 1420, width: 390, text: `${LOREM}\n\n${LOREM}`, fontFamily: 'PT Serif', fontSize: 25, align: 'justify', lineHeight: 1.45, fill: '#14181F' }),
-        SH('speech', { x: 944, y: 1400, width: 390, height: 420, fill: '#EAF2FF', stroke: '#0B7CFC', strokeWidth: 3 }),
-        T({ x: 976, y: 1436, width: 326, text: '«Яркая цитата героя статьи, ради которой стоит перевернуть страницу»', fontFamily: 'Playfair Display', fontSize: 34, fontStyle: 'italic', fill: '#03316F', lineHeight: 1.25 }),
-        T({ x: 1040, y: 1800, width: 300, text: '— Имя Фамилия, должность', fontFamily: 'Inter', fontSize: 22, fill: '#5D6675' }),
-        L({ x: 80, y: 1900, points: [0, 0, 1254, 0], stroke: '#C9CED6', strokeWidth: 1.5 }),
-        T({ x: 80, y: 1924, width: 200, text: '12', fontFamily: 'Oswald', fontSize: 30, fontStyle: 'bold', fill: '#14181F' }),
-        I({ x: 1094, y: 1916, width: 240, height: 59, src: BRAND.horizontal, locked: true, name: 'Логотип CND' }),
-      ],
-    },
-  },
-  {
-    id: 'cnd-magazine-contents', name: 'Журнал: содержание', kind: 'Журнал', tags: ['журнал', 'содержание', 'оглавление', 'выпуск', 'a4'], official: true, author: 'CND',
-    doc: {
-      width: 1414, height: 2000, background: '#0D1420',
-      elements: [
-        T({ x: 80, y: 80, width: 1254, text: 'В ЭТОМ ВЫПУСКЕ', fontFamily: 'Oswald', fontSize: 30, fill: '#7FB8FF', letterSpacing: 8 }),
-        T({ x: 80, y: 130, width: 1254, text: 'Содержание', fontFamily: 'Playfair Display', fontSize: 140, fontStyle: 'bold', fill: '#FFFFFF' }),
-        P({ x: 80, y: 360, width: 600, height: 760, label: 'Фото героя выпуска', cornerRadius: 12 }),
-        T({ x: 740, y: 370, width: 100, text: '04', fontFamily: 'Oswald', fontSize: 64, fontStyle: 'bold', fill: '#0B7CFC' }),
-        T({ x: 860, y: 376, width: 474, text: 'Главная тема\nКоротко, о чём материал', fontFamily: 'Inter', fontSize: 30, fill: '#E5EBF4', lineHeight: 1.4 }),
-        T({ x: 740, y: 560, width: 100, text: '12', fontFamily: 'Oswald', fontSize: 64, fontStyle: 'bold', fill: '#0B7CFC' }),
-        T({ x: 860, y: 566, width: 474, text: 'Интервью недели\nС кем говорили и о чём', fontFamily: 'Inter', fontSize: 30, fill: '#E5EBF4', lineHeight: 1.4 }),
-        T({ x: 740, y: 750, width: 100, text: '20', fontFamily: 'Oswald', fontSize: 64, fontStyle: 'bold', fill: '#0B7CFC' }),
-        T({ x: 860, y: 756, width: 474, text: 'Криминальная хроника\nГлавные события штата', fontFamily: 'Inter', fontSize: 30, fill: '#E5EBF4', lineHeight: 1.4 }),
-        T({ x: 740, y: 940, width: 100, text: '28', fontFamily: 'Oswald', fontSize: 64, fontStyle: 'bold', fill: '#0B7CFC' }),
-        T({ x: 860, y: 946, width: 474, text: 'Бизнес Калифорнии\nКто открылся, что изменилось', fontFamily: 'Inter', fontSize: 30, fill: '#E5EBF4', lineHeight: 1.4 }),
-        R({ x: 80, y: 1200, width: 1254, height: 2, fill: '#33435D' }),
-        P({ x: 125, y: 1250, width: 300, height: 300, label: 'Фото', mask: 'circle', frameStroke: '#0B7CFC', frameStrokeWidth: 6 }),
-        P({ x: 557, y: 1250, width: 300, height: 300, label: 'Фото', mask: 'circle', frameStroke: '#0B7CFC', frameStrokeWidth: 6, sample: { bg: './samples/street.jpg' } }),
-        P({ x: 989, y: 1250, width: 300, height: 300, label: 'Фото', mask: 'circle', frameStroke: '#0B7CFC', frameStrokeWidth: 6, sample: { bg: './samples/shop.jpg' } }),
-        T({ x: 80, y: 1580, width: 390, text: '34 · Спорт', fontFamily: 'Inter', fontSize: 28, fontStyle: 'bold', fill: '#FFFFFF', align: 'center' }),
-        T({ x: 512, y: 1580, width: 390, text: '40 · Улицы Калифорнии', fontFamily: 'Inter', fontSize: 28, fontStyle: 'bold', fill: '#FFFFFF', align: 'center' }),
-        T({ x: 944, y: 1580, width: 390, text: '46 · Реклама', fontFamily: 'Inter', fontSize: 28, fontStyle: 'bold', fill: '#FFFFFF', align: 'center' }),
-        T({ x: 80, y: 1880, width: 1000, text: 'Главный редактор: Имя Фамилия · Выпуск № 12 · AtlantWorld', fontFamily: 'Inter', fontSize: 24, fill: '#95A3B8' }),
-        I({ x: 1214, y: 1840, width: 120, height: 120, src: BRAND.iconWhite, locked: true, name: 'Логотип CND' }),
-      ],
-    },
-  },
-  {
-    id: 'cnd-statement', name: 'Официальное заявление', kind: 'Газета', tags: ['заявление', 'официально', 'пресс-релиз', 'a4'], official: true, author: 'CND',
-    doc: {
-      width: 1414, height: 2000, background: '#FFFFFF',
-      elements: [
-        R({ x: 0, y: 0, width: 1414, height: 24, fill: '#0B7CFC' }),
-        I({ x: 100, y: 110, width: 480, height: 117, src: BRAND.horizontal, locked: true, name: 'Логотип CND' }),
-        T({ x: 714, y: 120, width: 600, text: 'Пресс-служба CND\nКалифорния, AtlantWorld · 4 ноября 2026', fontFamily: 'Inter', fontSize: 26, fill: '#5D6675', align: 'right', lineHeight: 1.5 }),
-        L({ x: 100, y: 290, points: [0, 0, 1214, 0], stroke: '#DFE4EC', strokeWidth: 3 }),
-        T({ x: 100, y: 360, width: 1214, text: 'ОФИЦИАЛЬНОЕ ЗАЯВЛЕНИЕ', fontFamily: 'Montserrat', fontSize: 30, fontStyle: 'bold', fill: '#0B7CFC', letterSpacing: 8 }),
-        T({ x: 100, y: 420, width: 1214, text: 'О чём это заявление: коротко и по делу', fontFamily: 'Merriweather', fontSize: 64, fontStyle: 'bold', fill: '#03316F', lineHeight: 1.2 }),
-        T({ x: 100, y: 640, width: 1214, text: `${LOREM}\n\n${LOREM}\n\n${LOREM}`, fontFamily: 'PT Serif', fontSize: 32, fill: '#14181F', lineHeight: 1.55, align: 'justify' }),
-        SH('burst', { x: 1000, y: 1540, width: 290, height: 290, fill: '#C62828', outline: true, strokeWidth: 5, rotation: -12, opacity: 0.85 }),
-        E({ x: 1050, y: 1590, width: 190, height: 190, fill: 'rgba(0,0,0,0)', stroke: '#C62828', strokeWidth: 4, opacity: 0.85 }),
-        T({ x: 1035, y: 1655, width: 220, text: 'CND\nОФИЦИАЛЬНО', fontFamily: 'Oswald', fontSize: 30, fill: '#C62828', align: 'center', rotation: -12, opacity: 0.85, lineHeight: 1.1 }),
-        L({ x: 100, y: 1650, points: [0, 0, 420, 0], stroke: '#14181F', strokeWidth: 2 }),
-        T({ x: 100, y: 1670, width: 700, text: 'Имя Фамилия\nГлавный редактор California NewsDay', fontFamily: 'Inter', fontSize: 28, fill: '#14181F', lineHeight: 1.5 }),
-        R({ x: 0, y: 1900, width: 1414, height: 100, fill: '#03316F' }),
-        T({ x: 100, y: 1935, width: 1214, text: 'California NewsDay · штат Калифорния · AtlantWorld', fontFamily: 'Inter', fontSize: 26, fill: '#C9D8F0', align: 'center' }),
+        R({ x: 0, y: 0, width: 1414, height: 250, fill: '#03316F', gradient: { type: 'linear', from: '#03316F', to: '#0B4FA8', angle: 0 } }),
+        R({ x: 0, y: 250, width: 1414, height: 10, fill: '#0B7CFC' }),
+        I({ x: 100, y: 68, width: 114, height: 114, src: BRAND.iconWhite, locked: true, name: 'Логотип CND' }),
+        T({ x: 240, y: 76, width: 460, text: 'California\nNewsDay', fontFamily: 'Montserrat', fontSize: 44, fontStyle: 'bold', fill: '#FFFFFF', lineHeight: 1.05 }),
+        T({ x: 714, y: 78, width: 600, text: 'ПРЕСС-СЛУЖБА\nРедакция CND', fontFamily: 'Montserrat', fontSize: 24, fontStyle: 'bold', letterSpacing: 3, fill: '#FFFFFF', align: 'right', lineHeight: 1.5 }),
+        T({ x: 714, y: 160, width: 600, text: 'штат Калифорния · AtlantWorld', fontFamily: 'Inter', fontSize: 22, fill: '#9DB8E6', align: 'right' }),
+        R({ x: 100, y: 330, width: 1214, height: 112, fill: '#FFFFFF', stroke: '#DCE3EE', strokeWidth: 2, cornerRadius: 10, name: 'Реквизиты' }),
+        ...[['Документ', '№ 12/26'], ['Дата', '4 ноября 2026'], ['Кому', 'Жителям штата'], ['Статус', 'Для публикации']].flatMap(([a, b2], i) => [
+          T({ x: 132 + i * 300, y: 352, width: 270, text: a.toUpperCase(), fontFamily: 'Montserrat', fontSize: 16, fontStyle: 'bold', letterSpacing: 3, fill: '#7A8699' }),
+          T({ x: 132 + i * 300, y: 384, width: 270, text: b2, fontFamily: 'Inter', fontSize: 28, fontStyle: 'bold', fill: i === 3 ? '#0B7CFC' : '#14181F' }),
+        ]),
+        T({ x: 100, y: 510, width: 1214, text: 'ОФИЦИАЛЬНОЕ ЗАЯВЛЕНИЕ', fontFamily: 'Montserrat', fontSize: 28, fontStyle: 'bold', fill: '#0B7CFC', letterSpacing: 10 }),
+        T({ x: 100, y: 560, width: 1214, text: 'О чём это заявление: коротко, по делу и в одну-две строки', fontFamily: 'Merriweather', fontSize: 62, fontStyle: 'bold', fill: '#03316F', lineHeight: 1.18, name: 'Заголовок' }),
+        R({ x: 100, y: 760, width: 8, height: 150, fill: '#0B7CFC' }),
+        T({ x: 136, y: 760, width: 1178, text: 'Главное в одном абзаце: что произошло, кого это касается и что редакция просит сделать жителей штата.', fontFamily: 'PT Serif', fontSize: 34, fontStyle: 'italic', fill: '#2A3442', lineHeight: 1.45, name: 'Лид' }),
+        T({ x: 100, y: 960, width: 1214, text: `${LOREM}\n\n${LOREM}`, fontFamily: 'PT Serif', fontSize: 30, fill: '#14181F', lineHeight: 1.6, align: 'justify', name: 'Текст' }),
+        R({ x: 100, y: 1380, width: 1214, height: 190, fill: '#EEF4FD', cornerRadius: 12, name: 'Пункты' }),
+        ...[['01', 'Что меняется', 'Коротко, одной строкой.'], ['02', 'С какого числа', 'Дата вступления в силу.'], ['03', 'Куда обращаться', 'Канал или кабинет редакции.']].flatMap(([n, a, b2], i) => [
+          T({ x: 136 + i * 400, y: 1410, width: 80, text: n, fontFamily: 'Montserrat', fontSize: 44, fontStyle: 'bold', fill: '#0B7CFC' }),
+          T({ x: 136 + i * 400, y: 1470, width: 360, text: a, fontFamily: 'Inter', fontSize: 26, fontStyle: 'bold', fill: '#14181F' }),
+          T({ x: 136 + i * 400, y: 1508, width: 360, text: b2, fontFamily: 'Inter', fontSize: 22, fill: '#56657A' }),
+        ]),
+        L({ x: 100, y: 1700, points: [0, 0, 460, 0], stroke: '#14181F', strokeWidth: 2 }),
+        T({ x: 100, y: 1640, width: 460, text: 'Подпись', fontFamily: 'Marck Script', fontSize: 52, fill: '#03316F', name: 'Подпись' }),
+        T({ x: 100, y: 1716, width: 700, text: 'Имя Фамилия\nГлавный редактор California NewsDay', fontFamily: 'Inter', fontSize: 26, fill: '#14181F', lineHeight: 1.5 }),
+        E({ x: 1040, y: 1580, width: 240, height: 240, fill: 'rgba(0,0,0,0)', stroke: '#1F5FBF', strokeWidth: 6, opacity: 0.8, rotation: -10, name: 'Печать' }),
+        E({ x: 1062, y: 1602, width: 196, height: 196, fill: 'rgba(0,0,0,0)', stroke: '#1F5FBF', strokeWidth: 2, opacity: 0.8 }),
+        T({ x: 1040, y: 1662, width: 240, text: 'CND\nОФИЦИАЛЬНО\nПРЕСС-СЛУЖБА', fontFamily: 'Oswald', fontSize: 28, fill: '#1F5FBF', align: 'center', rotation: -10, opacity: 0.85, lineHeight: 1.15 }),
+        R({ x: 0, y: 1880, width: 1414, height: 120, fill: '#03316F' }),
+        T({ x: 100, y: 1918, width: 800, text: 'Вопросы прессы: канал #пресс-служба в Discord CND', fontFamily: 'Inter', fontSize: 24, fill: '#C9D8F0' }),
+        T({ x: 900, y: 1918, width: 414, text: 'californianewsday', fontFamily: 'Montserrat', fontSize: 24, fontStyle: 'bold', fill: '#FFFFFF', align: 'right' }),
       ],
     },
   },
@@ -471,7 +411,7 @@ const EXTRA_TEMPLATES = [
   },
 ];
 
-OFFICIAL_TEMPLATES.push(...EXTRA_TEMPLATES);
+OFFICIAL_TEMPLATES.push(...EXTRA_TEMPLATES, ...QUICK_TEMPLATES, ...MAG_TEMPLATES);
 
 export function blankDoc(size) {
 

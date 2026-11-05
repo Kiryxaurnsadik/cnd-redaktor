@@ -406,6 +406,8 @@ export default function PropsPanel({ doc, el, update, updateDoc, actions, select
             <>
               <label>Текст (двойной клик по тексту — править на холсте)</label>
               <textarea rows={4} value={el.text} onChange={(e) => set({ text: e.target.value })} />
+              <label className="row" style={{ marginTop: 6 }}><input type="checkbox" style={{ width: 'auto' }} checked={!!el.auto} onChange={(e) => set(e.target.checked ? { auto: true, text: /\{n|\{total/.test(el.text) ? el.text : '{nn}' } : { auto: false })} /> Номер страницы (сам меняется)</label>
+              {el.auto && <p className="small muted">{'{nn}'} — номер с нулём (03), {'{n}'} — просто номер, {'{total}'} — всего страниц. Например: «стр. {'{n}'} из {'{total}'}».</p>}
               <label>Шрифт</label>
               <div className="row" style={{ gap: 6 }}>
                 <select className="grow" value={el.fontFamily} onChange={(e) => set({ fontFamily: e.target.value })} style={{ fontFamily: el.fontFamily }}>

@@ -226,6 +226,13 @@ export const localApi = {
   },
   async saveTemplate(tpl) {
     const s = requireSession(); const d = await db();
+    if (tpl.id) {
+      const t = d.templates.find((x) => x.id === tpl.id);
+      permsOf('', d.settings);
+      if (!t || (t.author !== s.nickname && !canDo(s, 'templates'))) throw new Error('Обновлять шаблон может только его автор');
+      Object.assign(t, { name: tpl.name, tags: tpl.tags, kind: tpl.kind, thumb: tpl.thumb, doc: tpl.doc, updatedAt: Date.now() });
+      save(d); return t;
+    }
     const rec = { id: uid(), author: s.nickname, createdAt: Date.now(), uses: 0, official: false, ...tpl };
     d.templates.unshift(rec); save(d); return rec;
   },
