@@ -1,6 +1,7 @@
 // Если крадёте, то крадите ради реально хороших людей
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Clapperboard, Film } from 'lucide-react';
+import { Clapperboard, Film, Sparkles } from 'lucide-react';
+import GenPanel from './GenPanel.jsx';
 import AnimPanel from './AnimPanel.jsx';
 import { DEFAULT_ANIM, encodeGif, encodeVideo, hasAnims, makeAnimator, timingOf } from '../lib/anim.js';
 import { ArrowLeft, BadgeCheck, BookOpen, FileText, FolderArchive, BookmarkPlus, Copy, Download, Image as ImageIcon, LayoutTemplate, Lightbulb, Redo2, Send, Shapes, Type, Undo2, X, SlidersHorizontal, Minus, Plus, ChevronDown } from 'lucide-react';
@@ -33,7 +34,7 @@ import { withIds } from '../lib/templates.js';
 import { canManage, compressImage, loadImage, roleLabel, uid } from '../lib/util.js';
 
 const RAIL = [
-  ['templates', LayoutTemplate, 'Шаблоны'], ['magazine', BookOpen, 'Журнал'], ['anim', Clapperboard, 'Анимация'], ['text', Type, 'Текст'], ['photos', ImageIcon, 'Фото'],
+  ['templates', LayoutTemplate, 'Шаблоны'], ['magazine', BookOpen, 'Журнал'], ['anim', Clapperboard, 'Анимация'], ['gen', Sparkles, 'Генератор'], ['text', Type, 'Текст'], ['photos', ImageIcon, 'Фото'],
   ['elements', Shapes, 'Элементы'], ['brand', BadgeCheck, 'Бренд'],
 ];
 
@@ -847,6 +848,7 @@ export default function Editor({ session, left, go, open }) {
             addAllPages={(fn) => commit((d) => applyToAllPages(d, fn))} />}
           {tab === 'anim' && <AnimPanel doc={doc} selected={selected} update={update} playing={animPlaying} play={playAnim} exportAnim={exportAnim} busy={!!allBusy}
             setTiming={(p) => commit((d) => ({ ...d, anim: { ...timingOf(d), ...p } }))} autoAnimate={autoAnimate} />}
+          {tab === 'gen' && <GenPanel doc={doc} flash={flash} author={session.nickname} replaceDoc={(d) => { commit(d); setSelectedId(null); }} />}
           {tab === 'text' && <TextPanel add={add} />}
           {tab === 'photos' && <PhotosPanel addImageFile={addImageFile} uploads={uploads} addImage={addImage} importResult={importResult} docW={doc.width} pendingImport={pendingImport} clearPending={() => setPendingImport(null)} />}
           {tab === 'elements' && <ElementsPanel add={add} addImage={addImage} flash={flash} openPoser={(skin, mode = 'body') => setPoserSkin({ skin, mode })} />}
