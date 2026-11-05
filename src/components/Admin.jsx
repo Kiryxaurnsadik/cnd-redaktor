@@ -91,7 +91,7 @@ function Tokens({ session, flash }) {
               return (
                 <tr key={t.id}>
                   <td>{t.nickname || <i className="muted">групповой</i>}<div className="muted small">{t.note}</div></td>
-                  <td>{(t.role === 'admin' || t.role === 'editor') && !isAdmin(session.role)
+                  <td>{['admin', 'senior', 'editor'].includes(t.role) && !isAdmin(session.role)
                     ? roleLabel(t.role)
                     : <select className="small" style={{ width: 'auto' }} value={t.role} onChange={(e) => { const r = e.target.value; api.setTokenRole(t.id, r).then(reload).then(() => flash(`Должность: ${roleLabel(r)}. Действует сразу`)).catch((er) => flash(er.message)); }}>
                       {Object.keys(ROLES).filter((k) => isAdmin(session.role) || ['intern', 'journalist'].includes(k)).map((k) => <option key={k} value={k}>{roleLabel(k)}</option>)}
@@ -398,7 +398,7 @@ function Settings({ flash }) {
             <h3>Должности → доступ</h3>
             <p className="small muted">Пригодится для автоматического чтения удостоверений: должность с карточки превратится в роль на сайте.</p>
             <table>
-              <thead><tr><th /><th>Должность на удостоверении</th><th>Роль на сайте</th><th /></tr></thead>
+              <thead><tr><th /><th>Должность на удостоверении</th><th>Уровень прав</th><th /></tr></thead>
               <tbody>
                 {s.positions.map((p, i) => (
                   <tr key={i} onDragOver={(e) => { if (dragPos != null) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); if (dragPos != null) movePos(dragPos, i); setDragPos(null); }} style={{ opacity: dragPos === i ? 0.4 : 1 }}>
@@ -435,7 +435,7 @@ function Perms({ flash }) {
   const [saved, setSaved] = useState('');
   useEffect(() => { api.getSettings().then((d) => { const v = { permissions: d.permissions || {}, positions: d.positions || [] }; setS(v); setSaved(JSON.stringify(v.permissions)); }).catch((e) => flash(e.message)); }, []);
   if (!s) return null;
-  const roles = ['intern', 'journalist', 'editor'];
+  const roles = ['intern', 'journalist', 'editor', 'senior'];
   const has = (r, k) => (s.permissions[r] || []).includes(k);
   const toggle = (r, k) => setS({ ...s, permissions: { ...s.permissions, [r]: has(r, k) ? s.permissions[r].filter((x) => x !== k) : [...(s.permissions[r] || []), k] } });
   const dirty = JSON.stringify(s.permissions) !== saved;
@@ -448,7 +448,7 @@ function Perms({ flash }) {
         <h3 className="grow" style={{ margin: 0 }}>Права должностей</h3>
         <button className="primary" disabled={!dirty} onClick={save}>{dirty ? 'Сохранить права' : 'Сохранено'}</button>
       </div>
-      <p className="muted small">Отметьте, что может каждая должность. По умолчанию ни у кого нет дополнительных прав: создавать работы, публиковать шаблоны, скачивать и ставить лайки могут все. Главный редактор может всё всегда. Должности привязаны к уровню доступа из «Настройки → Должности».</p>
+      <p className="muted small">Отметьте, что может каждый уровень. По умолчанию ни у кого нет дополнительных прав: создавать работы, публиковать шаблоны, скачивать и ставить лайки могут все. Уровень 5 может всё всегда. Должности привязаны к уровню из «Настройки → Должности».</p>
       {!total && <p className="small" style={{ color: 'var(--brand-text)' }}>Сейчас дополнительные права не выданы никому.</p>}
       <div className="perm-wrap">
         <table className="perm-table">
@@ -492,7 +492,7 @@ export default function Admin({ session, logout, left, go }) {
         {tab === 'kpi' && <Kpi flash={flash} />}
         {tab === 'settings' && <Settings flash={flash} />}
         {tab === 'perms' && <Perms flash={flash} />}
-        {!tabs.length && <p className="muted">У вашей должности пока нет прав в админке. Их выдаёт главный редактор.</p>}
+        {!tabs.length && <p className="muted">У вашей должности пока нет прав в админке. Их выдаёт уровень 5.</p>}
       </div>
       {toast && <div className="toast">{toast}</div>}
     </>

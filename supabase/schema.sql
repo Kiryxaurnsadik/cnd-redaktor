@@ -7,7 +7,7 @@ create table if not exists cnd_tokens (
   hash text not null unique,
   code_hint text,
   nickname text,
-  role text not null check (role in ('intern','journalist','editor','admin')),
+  role text not null,
   note text default '',
   created_at timestamptz not null default now(),
   expires_at timestamptz,
@@ -27,6 +27,9 @@ create table if not exists cnd_logins (
   status text not null default 'pending' check (status in ('pending','approved','rejected')),
   reason text default ''
 );
+
+alter table cnd_tokens drop constraint if exists cnd_tokens_role_check;
+alter table cnd_tokens add constraint cnd_tokens_role_check check (role in ('intern','journalist','editor','senior','admin'));
 
 create table if not exists cnd_sessions (
   id uuid primary key default gen_random_uuid(),
@@ -144,7 +147,7 @@ create or replace function cnd_manager(p_session text) returns cnd_sessions
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
-  if s.role not in ('editor','admin') then raise exception 'Недостаточно прав'; end if;
+  if s.role not in ('editor','senior','admin') then raise exception 'Недостаточно прав'; end if;
   return s;
 end $$;
 
@@ -164,7 +167,7 @@ create or replace function cnd_need(p_session text, p_perm text) returns cnd_ses
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_session(p_session);
 begin
-  if not cnd_can(s.role, p_perm) then raise exception 'Нет права на это действие — его выдаёт главный редактор в Админке → Права'; end if;
+  if not cnd_can(s.role, p_perm) then raise exception 'Нет права на это действие — его выдаёт уровень 5 в Админке → Права'; end if;
   return s;
 end $$;
 
@@ -262,8 +265,8 @@ create or replace function cnd_issue_token(p_session text, p_nickname text, p_ro
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_need(p_session, 'tokens'); code text := cnd_gen_code(); t cnd_tokens;
 begin
-  if s.role <> 'admin' and p_role in ('editor','admin') then
-    raise exception 'Токены редакторов и админов выдаёт только главный редактор';
+  if s.role <> 'admin' and p_role in ('editor','senior','admin') then
+    raise exception 'Токены уровней 3–5 выдаёт только уровень 5';
   end if;
   insert into cnd_tokens (hash, code_hint, nickname, role, note, expires_at, issued_by, max_uses)
   values (cnd_hash(code), right(code, 4), nullif(trim(p_nickname), ''), p_role, coalesce(p_note, ''),
@@ -289,12 +292,12 @@ create or replace function cnd_set_token_role(p_session text, p_id uuid, p_role 
 language plpgsql security definer set search_path = public, extensions as $$
 declare s cnd_sessions := cnd_need(p_session, 'tokens'); t cnd_tokens;
 begin
-  if p_role not in ('intern','journalist','editor','admin') then raise exception 'Неизвестная должность'; end if;
+  if p_role not in ('intern','journalist','editor','senior','admin') then raise exception 'Неизвестная должность'; end if;
   select * into t from cnd_tokens where id = p_id;
   if not found then raise exception 'Токен не найден'; end if;
   if t.id = s.token_id then raise exception 'Свою должность менять нельзя'; end if;
-  if s.role <> 'admin' and (p_role in ('editor','admin') or t.role in ('editor','admin')) then
-    raise exception 'Редактора и главного редактора назначает только главный редактор';
+  if s.role <> 'admin' and (p_role in ('editor','senior','admin') or t.role in ('editor','senior','admin')) then
+    raise exception 'Уровни 3–5 назначает только уровень 5';
   end if;
   update cnd_tokens set role = p_role where id = p_id;
   update cnd_sessions set role = p_role where token_id = p_id;

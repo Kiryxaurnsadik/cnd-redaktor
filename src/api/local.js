@@ -75,7 +75,7 @@ function permsOf(role, settings = null) {
 function canDo(s, perm) { return !!s && permsOf(s.role).includes(perm); }
 function need(perm) {
   const s = requireSession();
-  if (!canDo(s, perm)) throw new Error('Нет права на это действие — его выдаёт главный редактор в Админке → Права');
+  if (!canDo(s, perm)) throw new Error('Нет права на это действие — его выдаёт уровень 5 в Админке → Права');
   return s;
 }
 function likesOf(d, kind, id, me) {
@@ -136,7 +136,7 @@ export const localApi = {
   async issueToken({ nickname, role, hours = TOKEN_HOURS, note = '', maxUses = null }) {
     await db().then((d) => permsOf('', d.settings));
     const s = need('tokens');
-    if (s.role !== 'admin' && ['editor', 'admin'].includes(role)) throw new Error('Токены редакторов и админов выдаёт только главный редактор');
+    if (s.role !== 'admin' && ['editor', 'senior', 'admin'].includes(role)) throw new Error('Токены уровней 3–5 выдаёт только уровень 5');
     const d = await db();
     const code = generateTokenCode();
     const t = {
@@ -157,7 +157,7 @@ export const localApi = {
     const s = requireSession(); const t = d.tokens.find((x) => x.id === id);
     if (!t) throw new Error('Токен не найден');
     if (t.id === s.tokenId) throw new Error('Свою должность менять нельзя');
-    if (s.role !== 'admin' && (['editor', 'admin'].includes(role) || ['editor', 'admin'].includes(t.role))) throw new Error('Редактора и главного редактора назначает только главный редактор');
+    if (s.role !== 'admin' && (['editor', 'senior', 'admin'].includes(role) || ['editor', 'senior', 'admin'].includes(t.role))) throw new Error('Уровни 3–5 назначает только уровень 5');
     t.role = role; save(d);
   },
   async extendToken(id, hours = TOKEN_HOURS) {

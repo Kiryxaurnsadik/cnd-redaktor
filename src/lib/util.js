@@ -2,10 +2,11 @@
 export const TOKEN_HOURS = 42;
 
 export const ROLES = {
-  intern: { label: 'Стажёр', rank: 1 },
-  journalist: { label: 'Журналист', rank: 2 },
-  editor: { label: 'Редактор', rank: 3 },
-  admin: { label: 'Главный редактор / админ', rank: 4 },
+  intern: { label: 'Уровень 1', rank: 1 },
+  journalist: { label: 'Уровень 2', rank: 2 },
+  editor: { label: 'Уровень 3', rank: 3 },
+  senior: { label: 'Уровень 4', rank: 4 },
+  admin: { label: 'Уровень 5 (полный доступ)', rank: 5 },
 };
 
 export const roleLabel = (r) => ROLES[r]?.label || r;
@@ -13,7 +14,7 @@ export const canManage = (role) => (ROLES[role]?.rank || 0) >= 3;
 export const isAdmin = (role) => role === 'admin';
 
 export const PERMS = [
-  ['tokens', 'Выдавать, продлевать и отзывать токены', 'Только стажёрам и журналистам. Токены редакторов выдаёт главный редактор.'],
+  ['tokens', 'Выдавать, продлевать и отзывать токены', 'Только уровням 1 и 2. Уровни 3–5 выдаёт уровень 5.'],
   ['logins', 'Проверять журнал входов', 'Видеть фото удостоверений, одобрять и отклонять входы'],
   ['works', 'Работы всех сотрудников', 'Видеть, открывать, править и удалять чужие работы'],
   ['exports', 'Журнал скачиваний', 'Кто, что и когда скачал'],
