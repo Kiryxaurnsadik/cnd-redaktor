@@ -1,5 +1,5 @@
 // Если крадёте, то крадите ради реально хороших людей
-import { ArrowLeft, BarChart3, FolderOpen, ListChecks, IdCard, ImageDown, KeyRound, LogIn, MessageSquare, Plus, ScrollText, Search, Settings2, Stamp, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChevronUp, ChevronDown, GripVertical, BarChart3, FolderOpen, ListChecks, IdCard, ImageDown, KeyRound, LogIn, MessageSquare, Plus, ScrollText, Search, Settings2, Stamp, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/index.js';
 import TopBar from './TopBar.jsx';
@@ -295,6 +295,7 @@ const SET_SECTIONS = [['login', 'Вход', LogIn], ['watermark', 'Водяно�
 
 function Settings({ flash }) {
   const [s, setS] = useState(null);
+  const [dragPos, setDragPos] = useState(null);
   const [saved, setSaved] = useState(null);
   const [sec, setSec] = useState('login');
   const [testing, setTesting] = useState(-1);
@@ -308,6 +309,7 @@ function Settings({ flash }) {
   if (!s) return null;
   const dirty = JSON.stringify(s) !== saved;
   const save = () => api.saveSettings(s).then(() => { setSaved(JSON.stringify(s)); flash('Настройки сохранены'); }).catch((e) => flash(e.message));
+  const movePos = (i, j) => { if (j < 0 || j >= s.positions.length || i === j) return; const a = [...s.positions]; const [x] = a.splice(i, 1); a.splice(j, 0, x); setS({ ...s, positions: a }); };
   const setPos = (i, patch) => setS({ ...s, positions: s.positions.map((p, j) => (j === i ? { ...p, ...patch } : p)) });
   const setCh = (i, patch) => setS({ ...s, discordChannels: s.discordChannels.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
   const test = async (i) => {
@@ -396,10 +398,13 @@ function Settings({ flash }) {
             <h3>Должности → доступ</h3>
             <p className="small muted">Пригодится для автоматического чтения удостоверений: должность с карточки превратится в роль на сайте.</p>
             <table>
-              <thead><tr><th>Должность на удостоверении</th><th>Роль на сайте</th><th /></tr></thead>
+              <thead><tr><th /><th>Должность на удостоверении</th><th>Роль на сайте</th><th /></tr></thead>
               <tbody>
                 {s.positions.map((p, i) => (
-                  <tr key={i}>
+                  <tr key={i} onDragOver={(e) => { if (dragPos != null) e.preventDefault(); }} onDrop={(e) => { e.preventDefault(); if (dragPos != null) movePos(dragPos, i); setDragPos(null); }} style={{ opacity: dragPos === i ? 0.4 : 1 }}>
+                    <td style={{ whiteSpace: 'nowrap' }}><span draggable onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); setDragPos(i); }} onDragEnd={() => setDragPos(null)} title="Перетащите" style={{ cursor: 'grab', display: 'inline-flex', verticalAlign: 'middle' }}><GripVertical size={16} /></span>
+                      <button className="icon" title="Выше" disabled={i === 0} onClick={() => movePos(i, i - 1)}><ChevronUp size={15} /></button>
+                      <button className="icon" title="Ниже" disabled={i === s.positions.length - 1} onClick={() => movePos(i, i + 1)}><ChevronDown size={15} /></button></td>
                     <td><input value={p.name} onChange={(e) => setPos(i, { name: e.target.value })} /></td>
                     <td><select value={p.role} onChange={(e) => setPos(i, { role: e.target.value })}>
                       {Object.entries(ROLES).map(([k, r]) => <option key={k} value={k}>{r.label}</option>)}
