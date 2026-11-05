@@ -487,3 +487,6 @@ button.linkish { background: none; border: 0; padding: 0; color: var(--brand); t
 .kpi-bar { position: relative; min-width: 120px; height: 20px; background: var(--panel-2); border-radius: 6px; overflow: hidden; }
 .kpi-bar i { position: absolute; inset: 0 auto 0 0; background: var(--brand); opacity: .35; }
 .kpi-bar span { position: relative; padding-left: 6px; font-weight: 700; font-size: 12px; line-height: 20px; }
+.guarded body { -webkit-user-select: none; user-select: none; }
+.guarded input, .guarded textarea, .guarded [contenteditable="true"], .guarded .allow-copy { -webkit-user-select: text; user-select: text; }
+.guarded img { -webkit-user-drag: none; }

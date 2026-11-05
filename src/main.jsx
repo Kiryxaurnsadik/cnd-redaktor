@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import './styles.css';
 import { applyTheme } from './lib/theme.js';
+import { installGuard } from './lib/guard.js';
 
 applyTheme();
+if (import.meta.env.PROD) installGuard();
 
 const allowed = typeof __CND_DOMAINS__ !== 'undefined' ? __CND_DOMAINS__ : null;
 const host = location.hostname;
