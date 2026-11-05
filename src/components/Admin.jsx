@@ -1,5 +1,5 @@
 // Если крадёте, то крадите ради реально хороших людей
-import { ArrowLeft, FolderOpen, ListChecks, IdCard, ImageDown, KeyRound, LogIn, MessageSquare, Plus, ScrollText, Search, Settings2, Stamp, Trash2 } from 'lucide-react';
+import { ArrowLeft, BarChart3, FolderOpen, ListChecks, IdCard, ImageDown, KeyRound, LogIn, MessageSquare, Plus, ScrollText, Search, Settings2, Stamp, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/index.js';
 import TopBar from './TopBar.jsx';
@@ -194,6 +194,43 @@ function Works({ go, flash }) {
         </tbody>
       </table>
       {!sorted.length && <p className="muted">Работ пока нет.</p>}
+    </div>
+  );
+}
+
+function Kpi({ flash }) {
+  const [data, setData] = useState({ exports: [], works: [], arch: [] });
+  const [days, setDays] = useState(7);
+  useEffect(() => {
+    Promise.all([api.listExports().catch(() => []), api.listWorks({ all: true }).catch(() => []), api.archiveList({ limit: 100 }).catch(() => [])])
+      .then(([exports, works, arch]) => setData({ exports, works, arch })).catch((e) => flash(e.message));
+  }, []);
+  const rows = useMemo(() => {
+    const from = days ? Date.now() - days * 864e5 : 0;
+    const m = {};
+    const row = (a) => (m[a] ||= { author: a, exports: 0, works: new Set(), edited: 0, arch: 0, likes: 0, last: 0 });
+    data.exports.filter((e) => e.at >= from).forEach((e) => { const r = row(e.author); r.exports++; if (e.workId) r.works.add(e.workId); r.last = Math.max(r.last, e.at); });
+    data.works.filter((w) => w.updatedAt >= from).forEach((w) => { const r = row(w.author); r.edited++; r.last = Math.max(r.last, w.updatedAt); });
+    data.arch.filter((a) => a.at >= from).forEach((a) => { const r = row(a.author); r.arch++; r.likes += a.likes || 0; });
+    return Object.values(m).map((r) => ({ ...r, works: r.works.size, score: r.exports * 2 + r.edited + r.arch * 3 + r.likes })).sort((a, b) => b.score - a.score);
+  }, [data, days]);
+  const max = Math.max(1, ...rows.map((r) => r.score));
+  return (
+    <div className="card table-wrap">
+      <div className="row wrap" style={{ marginBottom: 10 }}>
+        <h3 className="grow" style={{ margin: 0 }}>KPI сотрудников</h3>
+        <div className="seg">{[[1, 'День'], [7, 'Неделя'], [30, 'Месяц'], [0, 'Всё время']].map(([d, l]) => <button key={d} className={days === d ? 'on' : ''} onClick={() => setDays(d)}>{l}</button>)}</div>
+      </div>
+      <p className="small muted">Баллы: экспорт ×2, изменённая работа ×1, работа в архиве ×3, лайк ×1. Учитываются последние 500 экспортов и 100 работ архива.</p>
+      <table>
+        <thead><tr><th>#</th><th>Сотрудник</th><th>Баллы</th><th>Экспортов</th><th>Готовых работ</th><th>Изменял работ</th><th>В архиве</th><th>Лайков</th><th>Последняя активность</th></tr></thead>
+        <tbody>{rows.map((r, i) => (
+          <tr key={r.author}><td>{i + 1}</td><td><b>{r.author}</b></td>
+            <td><div className="kpi-bar"><i style={{ width: `${(r.score / max) * 100}%` }} /><span>{r.score}</span></div></td>
+            <td>{r.exports}</td><td>{r.works}</td><td>{r.edited}</td><td>{r.arch}</td><td>{r.likes}</td><td className="small">{r.last ? formatDate(r.last) : '—'}</td></tr>
+        ))}</tbody>
+      </table>
+      {!rows.length && <p className="muted">За этот период активности нет.</p>}
     </div>
   );
 }
@@ -428,7 +465,7 @@ function Perms({ flash }) {
 export default function Admin({ session, logout, left, go }) {
   const [toast, setToast] = useState('');
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2500); };
-  const tabs = [['tokens', 'Токены', KeyRound], ['logins', 'Журнал входов', ScrollText], ['works', 'Работы сотрудников', FolderOpen], ['exports', 'Экспорты', ImageDown]].filter(([k]) => can(session, k))
+  const tabs = [['kpi', 'KPI', BarChart3], ['tokens', 'Токены', KeyRound], ['logins', 'Журнал входов', ScrollText], ['works', 'Работы сотрудников', FolderOpen], ['exports', 'Экспорты', ImageDown]].filter(([k]) => can(session, k === 'kpi' ? 'exports' : k))
     .concat(isAdmin(session.role) ? [['perms', 'Права', ListChecks], ['settings', 'Настройки', Settings2]] : []);
   const [tab, setTab] = useState(() => tabs[0]?.[0] || 'tokens');
   return (
@@ -443,6 +480,7 @@ export default function Admin({ session, logout, left, go }) {
         {tab === 'logins' && <Logins flash={flash} />}
         {tab === 'works' && <Works go={go} flash={flash} />}
         {tab === 'exports' && <Exports flash={flash} />}
+        {tab === 'kpi' && <Kpi flash={flash} />}
         {tab === 'settings' && <Settings flash={flash} />}
         {tab === 'perms' && <Perms flash={flash} />}
         {!tabs.length && <p className="muted">У вашей должности пока нет прав в админке. Их выдаёт главный редактор.</p>}
